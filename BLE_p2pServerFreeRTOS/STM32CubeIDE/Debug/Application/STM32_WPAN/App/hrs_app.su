@@ -1,6 +1,0 @@
-hrs_app.c:95:6:HRS_Notification	16	static
-hrs_app.c:151:6:HRSAPP_Init	16	static
-hrs_app.c:198:13:HrsProcess	16	static
-hrs_app.c:209:13:HRSAPP_Measurement	16	static
-hrs_app.c:231:13:HrMeas	8	static
-hrs_app.c:247:17:HRSAPP_Read_RTC_SSR_SS	4	static

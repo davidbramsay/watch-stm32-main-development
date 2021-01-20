@@ -1,6 +1,0 @@
-dbg_trace.c:121:13:DbgTraceGetFileName	24	static
-dbg_trace.c:146:6:DbgTraceBuffer	24	static
-dbg_trace.c:167:13:DbgTrace_TxCpltCallback	32	static,ignoring_inline_asm
-dbg_trace.c:206:6:DbgTraceInit	16	static
-dbg_trace.c:228:8:_write	24	static
-dbg_trace.c:255:8:DbgTraceWrite	48	static,ignoring_inline_asm

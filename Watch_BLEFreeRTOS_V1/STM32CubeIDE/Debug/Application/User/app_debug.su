@@ -1,9 +1,0 @@
-stm32wbxx_ll_exti.h:382:22:LL_EXTI_EnableIT_32_63	16	static
-stm32wbxx_ll_bus.h:540:22:LL_AHB2_GRP1_EnableClock	24	static
-stm32wbxx_ll_bus.h:1637:22:LL_C2_AHB2_GRP1_EnableClock	24	static
-app_debug.c:156:6:APPD_Init	8	static
-app_debug.c:202:6:APPD_EnableCPU2	48	static
-app_debug.c:231:13:APPD_SetCPU2GpioConfig	40	static
-app_debug.c:303:13:APPD_BleDtbCfg	4	static
-app_debug.c:367:6:DbgOutputInit	8	static
-app_debug.c:389:6:DbgOutputTraces	24	static
