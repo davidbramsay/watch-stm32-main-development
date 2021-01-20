@@ -1,0 +1,12 @@
+iqs263.c:12:5:_angle_correction	40	static
+iqs263.c:27:5:_get_pad_angle	24	static
+iqs263.c:35:5:_get_angle	48	static
+iqs263.c:67:5:_get_min	24	static
+iqs263.c:73:5:_get_min_if_pressed	16	static
+iqs263.c:80:6:iqs263_poll_raw	32	static
+iqs263.c:96:19:setup_iqs263	32	static
+iqs263.c:161:19:iqs263_write	40	static
+iqs263.c:182:19:iqs263_read	40	static
+iqs263.c:204:5:iqs263_get_angle	24	static
+iqs263.c:212:5:iqs263_get_min	24	static
+iqs263.c:219:5:iqs263_get_min_if_pressed	24	static

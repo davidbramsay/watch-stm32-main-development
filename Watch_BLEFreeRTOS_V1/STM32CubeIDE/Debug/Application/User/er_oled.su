@@ -1,0 +1,13 @@
+er_oled.c:13:6:I2C_Write_Byte	32	static
+er_oled.c:23:6:er_oled_begin	8	static
+er_oled.c:68:6:er_oled_clear	24	static
+er_oled.c:77:6:er_oled_pixel	24	static
+er_oled.c:86:6:er_oled_char1616	24	static
+er_oled.c:107:6:er_oled_char	40	static
+er_oled.c:157:6:er_oled_string	32	static
+er_oled.c:174:6:er_oled_char3216	24	static
+er_oled.c:195:6:er_oled_bitmap	24	static
+er_oled.c:207:6:er_oled_display	24	static
+er_oled.c:219:6:er_oled_time	384	static
+er_oled.c:239:6:er_oled_print_2digit	392	static
+er_oled.c:249:6:er_oled_print_3digit	392	static
