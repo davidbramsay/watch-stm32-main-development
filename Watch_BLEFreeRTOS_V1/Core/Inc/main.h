@@ -29,13 +29,10 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32wbxx_hal.h"
-#include "stm32wbxx_nucleo.h"
 #include "cmsis_os.h"
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
-void   MX_LPUART1_UART_Init(void);
-void   MX_USART1_UART_Init(void);
 
 osMutexId_t rtcMutexHandle;
 osMessageQueueId_t bleRXqueueHandle;

@@ -26,6 +26,7 @@
 #include "ble.h"
 #include "p2p_server_app.h"
 #include "cmsis_os.h"
+#include "p2p_stm.h"
 
 extern RTC_HandleTypeDef hrtc;
 
