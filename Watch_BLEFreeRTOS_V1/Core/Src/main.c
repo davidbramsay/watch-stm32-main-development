@@ -43,32 +43,23 @@
 #include "app_entry.h"
 #include "app_common.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "stm32_lpm.h"
 #include "dbg_trace.h"
 #include "hw_conf.h"
 #include "otp.h"
+#include "ble.h"
 
 #include "er_oled.h"
 #include "dotstar.h"
 #include "iqs263.h"
 
+#include "p2p_server_app.h"
+
+
+extern P2P_Server_App_Context_t P2P_Server_App_Context;
+
 #define NUM_PIXELS 12
-/* USER CODE END Includes */
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
 I2C_HandleTypeDef hi2c1;
 
 RTC_HandleTypeDef hrtc;
@@ -86,7 +77,6 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 RTC_HandleTypeDef hrtc;
 
-/* Definitions for defaultTask */
 /* USER CODE BEGIN PV */
 /* Definitions for screenUpdate */
 osThreadId_t screenUpdateHandle;
@@ -124,12 +114,12 @@ const osThreadAttr_t rtcSecondTick_attributes = {
   .stack_size = 128 * 4
 };
 /* Definitions for bleTX */
-//osThreadId_t bleTXHandle;
-//const osThreadAttr_t bleTX_attributes = {
-//  .name = "bleTX",
-//  .priority = (osPriority_t) osPriorityLow,
-//  .stack_size = 128 * 4
-//};
+osThreadId_t bleTXHandle;
+const osThreadAttr_t bleTX_attributes = {
+  .name = "bleTX",
+  .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 128 * 8
+};
 /* Definitions for bleRX */
 osThreadId_t bleRXHandle;
 const osThreadAttr_t bleRX_attributes = {
@@ -156,8 +146,13 @@ osMessageQueueId_t bleTXqueueHandle;
 const osMessageQueueAttr_t bleTXqueue_attributes = {
   .name = "bleTXqueue"
 };
+/* Definitions for bleRXqueue */
+//osMessageQueueId_t bleRXqueueHandle; //global
+const osMessageQueueAttr_t bleRXqueue_attributes = {
+  .name = "bleRXqueue"
+};
 /* Definitions for rtcMutex */
-osMutexId_t rtcMutexHandle;
+//osMutexId_t rtcMutexHandle; //global
 const osMutexAttr_t rtcMutex_attributes = {
   .name = "rtcMutex"
 };
@@ -210,8 +205,6 @@ typedef struct {
 ScreenState_t ScreenState;
 //protected by screenTextMutex
 
-/* USER CODE END PV */
-
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -237,28 +230,14 @@ static void Reset_IPCC( void );
 static void Reset_BackupDomain( void );
 static void Init_Exti( void );
 static void Config_HSE(void);
-/* USER CODE END PFP */
 
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-
   /**
    * The OPTVERR flag is wrongly set at power on
    * It shall be cleared before using any HAL_FLASH_xxx() api
    */
   __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-
-  /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -304,17 +283,12 @@ int main(void)
 
   /* USER CODE END RTOS_MUTEX */
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
-
   /* USER CODE BEGIN RTOS_QUEUES */
       /* creation of bleTXqueue */
       bleTXqueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &bleTXqueue_attributes);
+
+      /* creation of bleRXqueue */
+      bleRXqueueHandle = osMessageQueueNew (16, sizeof(P2PS_STM_Data_t), &bleRXqueue_attributes);
 
   /* USER CODE END RTOS_QUEUES */
 
@@ -335,7 +309,7 @@ int main(void)
         rtcSecondTickHandle = osThreadNew(startRTCTick, NULL, &rtcSecondTick_attributes);
 
         /* creation of bleTX */
-        //bleTXHandle = osThreadNew(startBLETX, NULL, &bleTX_attributes);
+        bleTXHandle = osThreadNew(startBLETX, NULL, &bleTX_attributes);
 
         /* creation of bleRX */
         bleRXHandle = osThreadNew(startBLERX, NULL, &bleRX_attributes);
@@ -346,14 +320,6 @@ int main(void)
         /* creation of touchRead */
         touchReadHandle = osThreadNew(startTouchRead, NULL, &touchRead_attributes);
 
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
-
-  /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
-  /* USER CODE END RTOS_EVENTS */
-
   /* Init code for STM32_WPAN */
   APPE_Init();
   /* Start scheduler */
@@ -361,14 +327,8 @@ int main(void)
 
   /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
+  while (1){}
 
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -1210,13 +1170,14 @@ void startButtonPress(void *argument)
 
 		  //do stuff if button pressed
 		  if (!first_read){
-			    P2PS_APP_SW1_Button_Action();
 		       	osDelay(100);
+		  } else { //do stuff if button is released
+
 		  }
 
-		  		    //send BLE queue indicator; button 1 = 0x0
-		  		    uint16_t bleval = 0x0000 | ((!first_read) << 8);
-		  		    osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+		  //send BLE queue indicator; button 1 = 0x0
+		  uint16_t bleval = 0x0000 | ((!first_read) << 8);
+		  osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
 		}
 		if (callingPin == 0b10000 && first_read != buttonState[1]) { //button 2 trigger
 		    //set buttonState
@@ -1225,7 +1186,9 @@ void startButtonPress(void *argument)
 		    //do stuff if button pressed
 		    if (!first_read){
 		       	osDelay(100);
-		    }
+		    } else { //do stuff if button is released
+
+			}
 
 		    //send BLE queue indicator; button 2 = 0x1
 		    uint16_t bleval = 0x1000 | ((!first_read) << 8);
@@ -1238,7 +1201,9 @@ void startButtonPress(void *argument)
 		    //do stuff if button pressed
 		    if (!first_read){
 		    	osDelay(100);
-		    }
+		    }  else { //do stuff if button is released
+
+			}
 
 		    //send BLE queue indicator; button 3 = 0x2
 		    uint16_t bleval = 0x2000 | ((!first_read) << 8);
@@ -1311,18 +1276,18 @@ void startRTCTick(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(6000);
+    osDelay(1000);
 
     osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
     LedState.currentMode = LED_SPIRAL;
     osMutexRelease(ledStateMutexHandle);
 
-    osDelay(3000);
+    osDelay(1000);
 
     ScreenStatus_t newScreen = SCREEN_TIME;
     xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
 
-    osDelay(3000);
+    osDelay(1000);
 
     osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
     LedState.currentMode = LED_CONFIRM_FLASH;
@@ -1334,7 +1299,7 @@ void startRTCTick(void *argument)
     LedState.currentMode = LED_SPIRAL;
     osMutexRelease(ledStateMutexHandle);
 
-    osDelay(3000);
+    osDelay(1000);
 
     newScreen = SCREEN_TEXT;
 	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
@@ -1342,7 +1307,7 @@ void startRTCTick(void *argument)
 	osMutexRelease(screenTextMutexHandle);
     xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
 
-    osDelay(3000);
+    osDelay(1000);
 
     /*
     //set rtc
@@ -1399,11 +1364,14 @@ void startRTCTick(void *argument)
 void startBLETX(void *argument)
 {
   /* USER CODE BEGIN startBLETX */
+  uint16_t sendData;
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(2000);
-
+    if (osMessageQueueGet(bleTXqueueHandle, &sendData, NULL, osWaitForever) == osOK){
+    	P2PS_Send_Data(sendData);
+    }
   }
   /* USER CODE END startBLETX */
 }
@@ -1419,9 +1387,46 @@ void startBLERX(void *argument)
 {
   /* USER CODE BEGIN startBLERX */
   /* Infinite loop */
+
+  P2PS_STM_Data_t rxData;
+
   for(;;)
   {
-    osDelay(1000);
+
+	if (osMessageQueueGet(bleRXqueueHandle, &rxData, NULL, osWaitForever) == osOK){
+
+			memcpy(&P2P_Server_App_Context.OTATimestamp, &(rxData.pPayload[2]), 8);
+    	    P2P_Server_App_Context.OTA12HrFormat = rxData.pPayload[10];
+    		P2P_Server_App_Context.OTADaylightSavings = rxData.pPayload[11];
+
+    	    RTC_TimeTypeDef sTime = {0};
+    		RTC_DateTypeDef sDate = {0};
+
+    		uint8_t timestampvals[8];
+    		memcpy(timestampvals, &(P2P_Server_App_Context.OTATimestamp), 8);
+
+    		uint8_t AMPM = timestampvals[0];
+
+    		sTime.Hours      = timestampvals[3];
+    		sTime.Minutes    = timestampvals[2];
+    		sTime.Seconds    = timestampvals[1];
+    		sTime.SubSeconds = 0x0;
+    		sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+
+    		if (P2P_Server_App_Context.OTADaylightSavings){ sTime.DayLightSaving = RTC_DAYLIGHTSAVING_ADD1H; }
+
+    		sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+    		sDate.WeekDay = timestampvals[7];
+    		sDate.Month   = timestampvals[6];
+    		sDate.Date    = timestampvals[5];
+    		sDate.Year    = timestampvals[4];
+
+    		osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+    		if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
+    		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
+    	    osMutexRelease(rtcMutexHandle);
+	}
   }
   /* USER CODE END startBLERX */
 }
@@ -1566,33 +1571,6 @@ void startTouchRead(void *argument)
   }
   /* USER CODE END startTouchRead */
 }
-
-/**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM2 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-
-/*
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-   USER CODE BEGIN Callback 0
-
-   USER CODE END Callback 0
-  if (htim->Instance == TIM2) {
-    HAL_IncTick();
-  }
-   USER CODE BEGIN Callback 1
-
-   USER CODE END Callback 1
-}
-*/
-
-
-
 
 
 void PeriphClock_Config(void)

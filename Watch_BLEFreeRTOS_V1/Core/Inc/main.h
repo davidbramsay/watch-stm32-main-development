@@ -29,39 +29,16 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32wbxx_hal.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "stm32wbxx_nucleo.h"
-/* USER CODE END Includes */
+#include "cmsis_os.h"
 
-/* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
-
-/* USER CODE END ET */
-
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-/* USER CODE END EC */
-
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
-
-/* USER CODE END EM */
-
-/* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
-
-/* USER CODE BEGIN EFP */
-
-/* USER CODE END EFP */
-
-/* Private defines -----------------------------------------------------------*/
 void   MX_LPUART1_UART_Init(void);
 void   MX_USART1_UART_Init(void);
-/* USER CODE BEGIN Private defines */
+
+osMutexId_t rtcMutexHandle;
+osMessageQueueId_t bleRXqueueHandle;
 
 #define OLED_RESET_Pin GPIO_PIN_0
 #define OLED_RESET_GPIO_Port GPIOB
@@ -74,7 +51,6 @@ void   MX_USART1_UART_Init(void);
 #define BUTTON_3_Pin GPIO_PIN_5
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
-/* USER CODE END Private defines */
 
 #ifdef __cplusplus
 }

@@ -27,88 +27,17 @@
 #include "p2p_server_app.h"
 #include "cmsis_os.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
- typedef struct{
-    uint8_t             Device_Led_Selection;
-    uint8_t             Led1;
- }P2P_LedCharValue_t;
-
- typedef struct{
-    uint8_t             Device_Button_Selection;
-    uint8_t             ButtonStatus;
- }P2P_ButtonCharValue_t;
-
- typedef struct
- {
-   uint8_t               Notification_Status; /* used to chek if P2P Server is enabled to Notify */
-   P2P_LedCharValue_t    LedControl;
-   P2P_ButtonCharValue_t ButtonControl;
-   uint16_t              ConnectionHandle;
-   uint64_t				 OTATimestamp;
-   uint8_t				 OTA12HrFormat;
-   uint8_t               OTADaylightSavings;
- } P2P_Server_App_Context_t;
-
- extern RTC_HandleTypeDef hrtc;
-/* USER CODE END PTD */
-
-/* Private defines ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macros -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
-/**
- * START of Section BLE_APP_CONTEXT
- */
-
-PLACE_IN_SECTION("BLE_APP_CONTEXT") static P2P_Server_App_Context_t P2P_Server_App_Context;
-
-/**
- * END of Section BLE_APP_CONTEXT
- */
-
-osThreadId_t P2PProcessId;
-
-const osThreadAttr_t P2PProcess_attr = {
-    .name = CFG_P2P_PROCESS_NAME,
-    .attr_bits = CFG_P2P_PROCESS_ATTR_BITS,
-    .cb_mem = CFG_P2P_PROCESS_CB_MEM,
-    .cb_size = CFG_P2P_PROCESS_CB_SIZE,
-    .stack_mem = CFG_P2P_PROCESS_STACK_MEM,
-    .priority = CFG_P2P_PROCESS_PRIORITY,
-    .stack_size = CFG_P2P_PROCESS_STACK_SIZE
-};
-/* USER CODE END PV */
+extern RTC_HandleTypeDef hrtc;
 
 /* Private function prototypes -----------------------------------------------*/
-/* USER CODE BEGIN PFP */
-//P2P FIX static void P2PS_Send_Notification(void);
-static void P2PProcess(void *argument);
-static void P2PS_APP_LED_BUTTON_context_Init(void);
-/* USER CODE END PFP */
+void P2PS_APP_Context_Init(void);
 
 /* Functions Definition ------------------------------------------------------*/
 void P2PS_STM_App_Notification(P2PS_STM_App_Notification_evt_t *pNotification)
 {
-/* USER CODE BEGIN P2PS_STM_App_Notification_1 */
-
-/* USER CODE END P2PS_STM_App_Notification_1 */
   switch(pNotification->P2P_Evt_Opcode)
   {
-/* USER CODE BEGIN P2PS_STM_App_Notification_P2P_Evt_Opcode */
+
 #if(BLE_CFG_OTA_REBOOT_CHAR != 0)
     case P2PS_STM_BOOT_REQUEST_EVT:
       APP_DBG_MSG("-- P2P APPLICATION SERVER : BOOT REQUESTED\n");
@@ -118,226 +47,85 @@ void P2PS_STM_App_Notification(P2PS_STM_App_Notification_evt_t *pNotification)
       NVIC_SystemReset();
       break;
 #endif
-/* USER CODE END P2PS_STM_App_Notification_P2P_Evt_Opcode */
 
     case P2PS_STM__NOTIFY_ENABLED_EVT:
-/* USER CODE BEGIN P2PS_STM__NOTIFY_ENABLED_EVT */
       P2P_Server_App_Context.Notification_Status = 1;
       APP_DBG_MSG("-- P2P APPLICATION SERVER : NOTIFICATION ENABLED\n");
       APP_DBG_MSG(" \n\r");
-/* USER CODE END P2PS_STM__NOTIFY_ENABLED_EVT */
       break;
 
     case P2PS_STM_NOTIFY_DISABLED_EVT:
-/* USER CODE BEGIN P2PS_STM_NOTIFY_DISABLED_EVT */
       P2P_Server_App_Context.Notification_Status = 0;
       APP_DBG_MSG("-- P2P APPLICATION SERVER : NOTIFICATION DISABLED\n");
       APP_DBG_MSG(" \n\r");
-/* USER CODE END P2PS_STM_NOTIFY_DISABLED_EVT */
       break;
 
     case P2PS_STM_WRITE_EVT:
-/* USER CODE BEGIN P2PS_STM_WRITE_EVT */
-      if(pNotification->DataTransfered.pPayload[0] == 0x00){ /* ALL Devices selected */
-        //all devices
-	    //BSP_LED_On(LED_BLUE);
-	    APP_DBG_MSG("-- P2P APPLICATION SERVER  : A PAYLOAD FOR ALL DEVICES HAS BEEN RX\n");
-	    APP_DBG_MSG(" \n\r");
-	    //P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
-	    memcpy(&P2P_Server_App_Context.OTATimestamp, &(pNotification->DataTransfered.pPayload[2]), 8);
-	    P2P_Server_App_Context.OTA12HrFormat = pNotification->DataTransfered.pPayload[10];
-		P2P_Server_App_Context.OTADaylightSavings = pNotification->DataTransfered.pPayload[11];
-
-		RTC_TimeTypeDef sTime = {0};
-		RTC_DateTypeDef sDate = {0};
-
-		uint8_t timestampvals[8];
-		memcpy(timestampvals, &(P2P_Server_App_Context.OTATimestamp), 8);
-
-		uint8_t AMPM = timestampvals[0];
-
-		sTime.Hours      = timestampvals[3];
-		sTime.Minutes    = timestampvals[2];
-		sTime.Seconds    = timestampvals[1];
-		sTime.SubSeconds = 0x0;
-		sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-
-		if (P2P_Server_App_Context.OTADaylightSavings){ sTime.DayLightSaving = RTC_DAYLIGHTSAVING_ADD1H; }
-
-		sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-
-		if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
-		  {
-			Error_Handler();
-		  }
-		sDate.WeekDay = timestampvals[7];
-		sDate.Month   = timestampvals[6];
-		sDate.Date    = timestampvals[5];
-		sDate.Year    = timestampvals[4];
-		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-		  {
-			Error_Handler();
-		  }
-      }
-      if(pNotification->DataTransfered.pPayload[0] == 0x01){ /* device 1 selected*/
-			memcpy(&P2P_Server_App_Context.OTATimestamp, &(pNotification->DataTransfered.pPayload[2]), 8);
-			P2P_Server_App_Context.OTA12HrFormat = pNotification->DataTransfered.pPayload[10];
-			P2P_Server_App_Context.OTADaylightSavings = pNotification->DataTransfered.pPayload[11];
-
-			RTC_TimeTypeDef sTime = {0};
-			RTC_DateTypeDef sDate = {0};
-
-			uint8_t timestampvals[8];
-			memcpy(timestampvals, &(P2P_Server_App_Context.OTATimestamp), 8);
-
-			uint8_t AMPM = timestampvals[0];
-
-			sTime.Hours      = timestampvals[3];
-			sTime.Minutes    = timestampvals[2];
-			sTime.Seconds    = timestampvals[1];
-			sTime.SubSeconds = 0x0;
-			sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-
-			if (P2P_Server_App_Context.OTADaylightSavings){ sTime.DayLightSaving = RTC_DAYLIGHTSAVING_ADD1H; }
-
-			sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-
-			if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
-			  {
-				Error_Handler();
-			  }
-			sDate.WeekDay = timestampvals[7];
-			sDate.Month   = timestampvals[6];
-			sDate.Date    = timestampvals[5];
-			sDate.Year    = timestampvals[4];
-			if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-			  {
-				Error_Handler();
-			  }
-
-		  APP_DBG_MSG("-- P2P APPLICATION SERVER 1 : MSG RX\n");
-          APP_DBG_MSG(" \n\r");
-          //P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
-
-      }
-
-/* USER CODE END P2PS_STM_WRITE_EVT */
+		osMessageQueuePut(bleRXqueueHandle, &(pNotification->DataTransfered), 0, 0);
       break;
 
     default:
-/* USER CODE BEGIN P2PS_STM_App_Notification_default */
-
-/* USER CODE END P2PS_STM_App_Notification_default */
       break;
   }
-/* USER CODE BEGIN P2PS_STM_App_Notification_2 */
-
-/* USER CODE END P2PS_STM_App_Notification_2 */
   return;
 }
 
 void P2PS_APP_Notification(P2PS_APP_ConnHandle_Not_evt_t *pNotification)
 {
-/* USER CODE BEGIN P2PS_APP_Notification_1 */
-
-/* USER CODE END P2PS_APP_Notification_1 */
   switch(pNotification->P2P_Evt_Opcode)
   {
-/* USER CODE BEGIN P2PS_APP_Notification_P2P_Evt_Opcode */
-
-/* USER CODE END P2PS_APP_Notification_P2P_Evt_Opcode */
   case PEER_CONN_HANDLE_EVT :
-/* USER CODE BEGIN PEER_CONN_HANDLE_EVT */
-
-/* USER CODE END PEER_CONN_HANDLE_EVT */
     break;
 
     case PEER_DISCON_HANDLE_EVT :
-/* USER CODE BEGIN PEER_DISCON_HANDLE_EVT */
-       P2PS_APP_LED_BUTTON_context_Init();
-/* USER CODE END PEER_DISCON_HANDLE_EVT */
-    break;
-
+       P2PS_APP_Context_Init();
+       break;
     default:
-/* USER CODE BEGIN P2PS_APP_Notification_default */
-
-/* USER CODE END P2PS_APP_Notification_default */
       break;
   }
-/* USER CODE BEGIN P2PS_APP_Notification_2 */
-
-/* USER CODE END P2PS_APP_Notification_2 */
   return;
 }
 
 void P2PS_APP_Init(void)
 {
-/* USER CODE BEGIN P2PS_APP_Init */
-  //P2P FIX UTIL_SEQ_RegTask( 1<< CFG_TASK_SW1_BUTTON_PUSHED_ID, UTIL_SEQ_RFU, P2PS_Send_Notification );
-  P2PProcessId = osThreadNew(P2PProcess, NULL, &P2PProcess_attr);
-  /**
-   * Initialize LedButton Service
-   */
   P2P_Server_App_Context.Notification_Status=0;
-  P2PS_APP_LED_BUTTON_context_Init();
-/* USER CODE END P2PS_APP_Init */
+  P2PS_APP_Context_Init();
   return;
 }
 
-/* USER CODE BEGIN FD */
-void P2PS_APP_LED_BUTTON_context_Init(void){
-
-
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x01; /* Device1 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x01;/* Device1 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-  P2P_Server_App_Context.OTATimestamp=0x0000000000000000;
-  P2P_Server_App_Context.OTA12HrFormat=0x00;
-  P2P_Server_App_Context.OTADaylightSavings=0x00;
+void  P2PS_APP_Context_Init(void)
+{
+	  //init context on app init and on reconnect events
+	  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x01; /* Device1 */
+	  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
+	  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x01;/* Device1 */
+	  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
+	  P2P_Server_App_Context.OTATimestamp=0x0000000000000000;
+	  P2P_Server_App_Context.OTA12HrFormat=0x00;
+	  P2P_Server_App_Context.OTADaylightSavings=0x00;
 }
 
-void P2PS_APP_SW1_Button_Action(void)
+void P2PS_Send_Timestamp(void)
 {
-  //P2P FIX UTIL_SEQ_SetTask( 1<<CFG_TASK_SW1_BUTTON_PUSHED_ID, CFG_SCH_PRIO_0);
-  osThreadFlagsSet( P2PProcessId, 1 );
-  return;
-}
-/* USER CODE END FD */
-
-/*************************************************************
- *
- * LOCAL FUNCTIONS
- *
- *************************************************************/
-/* USER CODE BEGIN FD_LOCAL_FUNCTIONS*/
-void P2PS_Send_Notification(void)
-{
-
-  if(P2P_Server_App_Context.ButtonControl.ButtonStatus == 0x00){
-    P2P_Server_App_Context.ButtonControl.ButtonStatus=0x01;
-  } else {
-    P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-  }
 
    if(P2P_Server_App_Context.Notification_Status){
-    APP_DBG_MSG("-- P2P APPLICATION SERVER  : INFORM CLIENT BUTTON 1 PUSHED \n ");
-    APP_DBG_MSG(" \n\r");
 
+	APP_DBG_MSG("-- P2P APPLICATION SERVER  : SEND LOCAL TIMESTAMP \n ");
+    APP_DBG_MSG(" \n\r");
 
     RTC_TimeTypeDef cTime;
 	RTC_DateTypeDef cDate;
 
+	osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
 	HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
 	HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+	osMutexRelease(rtcMutexHandle);
 
 	uint64_t sendval = (cDate.WeekDay << (8*3)) | (cDate.Month << (8*2)) | (cDate.Date << (8*1)) | cDate.Year;
 	sendval <<= 32;
 	sendval |= (cTime.Hours << (8*3)) | (cTime.Minutes << (8*2)) | (cTime.Seconds << (8*1)) | (cTime.TimeFormat);
 
 	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 8);
-	//P2PS_STM_App_Update_Char(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&P2P_Server_App_Context.ButtonControl);
-
 
    } else {
     APP_DBG_MSG("-- P2P APPLICATION SERVER : CAN'T INFORM CLIENT -  NOTIFICATION DISABLED\n ");
@@ -346,16 +134,40 @@ void P2PS_Send_Notification(void)
   return;
 }
 
-static void P2PProcess(void *argument)
+void P2PS_Send_Data(uint16_t data)
 {
-  UNUSED(argument);
 
-  for(;;)
-  {
-    osThreadFlagsWait( 1, osFlagsWaitAny, osWaitForever);
-    P2PS_Send_Notification( );
-  }
+   if(P2P_Server_App_Context.Notification_Status){
+    APP_DBG_MSG("-- P2P APPLICATION SERVER  : SEND TIMESTAMPED DATA \n ");
+    APP_DBG_MSG(" \n\r");
+
+    RTC_TimeTypeDef cTime;
+	RTC_DateTypeDef cDate;
+
+	osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+	HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+	HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+	osMutexRelease(rtcMutexHandle);
+
+	uint16_t sendval[5] = {0};
+
+	sendval[4] = (cDate.WeekDay << (8*1)) | cDate.Month;
+	sendval[3] = (cDate.Date << (8*1)) | cDate.Year;
+
+	sendval[2] = (cTime.Hours << (8*1)) | cTime.Minutes;
+	sendval[1] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+
+	sendval[0] = data;
+
+	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 10);
+
+   } else {
+    APP_DBG_MSG("-- P2P APPLICATION SERVER : CAN'T INFORM CLIENT -  NOTIFICATION DISABLED\n ");
+   }
+
+  return;
 }
+
 /* USER CODE END FD_LOCAL_FUNCTIONS*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
