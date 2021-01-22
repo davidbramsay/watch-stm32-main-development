@@ -136,8 +136,6 @@
 
 /**< specific parameters */
 /*****************************************************/
-#define PUSH_BUTTON_SW1_EXTI_IRQHandler                         EXTI4_IRQHandler
-#define PUSH_BUTTON_SW2_EXTI_IRQHandler                         EXTI0_IRQHandler
 
 #define P2P_SERVER1    1    /*1 = Device is Peripherique*/
 #define P2P_SERVER2    0
@@ -543,9 +541,7 @@ typedef enum
 #define CFG_P2P_PROCESS_STACK_SIZE            (128 * 5)
 
 /* USER CODE BEGIN FreeRTOS_Defines */
-#define PUSH_BUTTON_SW1_EXTI_IRQHandler     EXTI4_IRQHandler
-#define PUSH_BUTTON_SW2_EXTI_IRQHandler     EXTI0_IRQHandler
-#define PUSH_BUTTON_SW3_EXTI_IRQHandler     EXTI1_IRQHandler
+
 /* USER CODE END FreeRTOS_Defines */
 
 /******************************************************************************

@@ -124,12 +124,12 @@ const osThreadAttr_t rtcSecondTick_attributes = {
   .stack_size = 128 * 4
 };
 /* Definitions for bleTX */
-osThreadId_t bleTXHandle;
-const osThreadAttr_t bleTX_attributes = {
-  .name = "bleTX",
-  .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 4
-};
+//osThreadId_t bleTXHandle;
+//const osThreadAttr_t bleTX_attributes = {
+//  .name = "bleTX",
+//  .priority = (osPriority_t) osPriorityLow,
+//  .stack_size = 128 * 4
+//};
 /* Definitions for bleRX */
 osThreadId_t bleRXHandle;
 const osThreadAttr_t bleRX_attributes = {
@@ -335,7 +335,7 @@ int main(void)
         rtcSecondTickHandle = osThreadNew(startRTCTick, NULL, &rtcSecondTick_attributes);
 
         /* creation of bleTX */
-        bleTXHandle = osThreadNew(startBLETX, NULL, &bleTX_attributes);
+        //bleTXHandle = osThreadNew(startBLETX, NULL, &bleTX_attributes);
 
         /* creation of bleRX */
         bleRXHandle = osThreadNew(startBLERX, NULL, &bleRX_attributes);
@@ -681,41 +681,7 @@ static void MX_RTC_Init(void)
 
 }
 
-/**
-  * Enable DMA controller clock
 
-static void MX_DMA_Init(void)
-{
-
-   DMA controller clock enable
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-   DMA interrupt init
-   DMA1_Channel4_IRQn interrupt configuration
-  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 15, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-   DMA2_Channel4_IRQn interrupt configuration
-  HAL_NVIC_SetPriority(DMA2_Channel4_IRQn, 15, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Channel4_IRQn);
-
-}
-
-*
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-
-static void MX_GPIO_Init(void)
-{
-
-   GPIO Ports Clock Enable
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-}*/
 
 /* USER CODE BEGIN 4 */
 static void MX_SPI1_Init(void)
@@ -864,6 +830,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure SPI_NSS pin to be GPIO, pulled up*/
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI3_IRQn, 15, 0);
@@ -1075,6 +1047,9 @@ void startLEDControl(void *argument)
    	//LedState.currentMode = LED_CONFIRM_FLASH;
    	//osMutexRelease(ledStateMutexHandle);
 
+  //For LED to work on new board (multiplexed with SPI_NSS), we need to pull PA4 high
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+
 
   //LedState Init
   osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
@@ -1235,6 +1210,7 @@ void startButtonPress(void *argument)
 
 		  //do stuff if button pressed
 		  if (!first_read){
+			    P2PS_APP_SW1_Button_Action();
 		       	osDelay(100);
 		  }
 

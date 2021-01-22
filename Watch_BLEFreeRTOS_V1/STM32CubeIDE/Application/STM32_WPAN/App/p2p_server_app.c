@@ -44,13 +44,18 @@
     uint8_t             ButtonStatus;
  }P2P_ButtonCharValue_t;
 
-typedef struct
-{
-  uint8_t               Notification_Status; /* used to chek if P2P Server is enabled to Notify */
-  P2P_LedCharValue_t    LedControl;
-  P2P_ButtonCharValue_t ButtonControl;
-  uint16_t              ConnectionHandle;
-} P2P_Server_App_Context_t;
+ typedef struct
+ {
+   uint8_t               Notification_Status; /* used to chek if P2P Server is enabled to Notify */
+   P2P_LedCharValue_t    LedControl;
+   P2P_ButtonCharValue_t ButtonControl;
+   uint16_t              ConnectionHandle;
+   uint64_t				 OTATimestamp;
+   uint8_t				 OTA12HrFormat;
+   uint8_t               OTADaylightSavings;
+ } P2P_Server_App_Context_t;
+
+ extern RTC_HandleTypeDef hrtc;
 /* USER CODE END PTD */
 
 /* Private defines ------------------------------------------------------------*/
@@ -133,37 +138,87 @@ void P2PS_STM_App_Notification(P2PS_STM_App_Notification_evt_t *pNotification)
 
     case P2PS_STM_WRITE_EVT:
 /* USER CODE BEGIN P2PS_STM_WRITE_EVT */
-      if(pNotification->DataTransfered.pPayload[0] == 0x00){ /* ALL Deviceselected - may be necessary as LB Routeur informs all connection */
-        if(pNotification->DataTransfered.pPayload[1] == 0x01)
-        {
-          BSP_LED_On(LED_BLUE);
-          APP_DBG_MSG("-- P2P APPLICATION SERVER  : LED1 ON\n");
-          APP_DBG_MSG(" \n\r");
-          P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
-        }
-        if(pNotification->DataTransfered.pPayload[1] == 0x00)
-        {
-          BSP_LED_Off(LED_BLUE);
-          APP_DBG_MSG("-- P2P APPLICATION SERVER  : LED1 OFF\n");
-          APP_DBG_MSG(" \n\r");
-          P2P_Server_App_Context.LedControl.Led1=0x00; /* LED1 OFF */
-        }
+      if(pNotification->DataTransfered.pPayload[0] == 0x00){ /* ALL Devices selected */
+        //all devices
+	    //BSP_LED_On(LED_BLUE);
+	    APP_DBG_MSG("-- P2P APPLICATION SERVER  : A PAYLOAD FOR ALL DEVICES HAS BEEN RX\n");
+	    APP_DBG_MSG(" \n\r");
+	    //P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
+	    memcpy(&P2P_Server_App_Context.OTATimestamp, &(pNotification->DataTransfered.pPayload[2]), 8);
+	    P2P_Server_App_Context.OTA12HrFormat = pNotification->DataTransfered.pPayload[10];
+		P2P_Server_App_Context.OTADaylightSavings = pNotification->DataTransfered.pPayload[11];
+
+		RTC_TimeTypeDef sTime = {0};
+		RTC_DateTypeDef sDate = {0};
+
+		uint8_t timestampvals[8];
+		memcpy(timestampvals, &(P2P_Server_App_Context.OTATimestamp), 8);
+
+		uint8_t AMPM = timestampvals[0];
+
+		sTime.Hours      = timestampvals[3];
+		sTime.Minutes    = timestampvals[2];
+		sTime.Seconds    = timestampvals[1];
+		sTime.SubSeconds = 0x0;
+		sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+
+		if (P2P_Server_App_Context.OTADaylightSavings){ sTime.DayLightSaving = RTC_DAYLIGHTSAVING_ADD1H; }
+
+		sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+		if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+		  {
+			Error_Handler();
+		  }
+		sDate.WeekDay = timestampvals[7];
+		sDate.Month   = timestampvals[6];
+		sDate.Date    = timestampvals[5];
+		sDate.Year    = timestampvals[4];
+		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+		  {
+			Error_Handler();
+		  }
       }
-      if(pNotification->DataTransfered.pPayload[0] == 0x01){ /* end device 1 selected - may be necessary as LB Routeur informs all connection */
-        if(pNotification->DataTransfered.pPayload[1] == 0x01)
-        {
-          BSP_LED_On(LED_BLUE);
-          APP_DBG_MSG("-- P2P APPLICATION SERVER 1 : LED1 ON\n");
+      if(pNotification->DataTransfered.pPayload[0] == 0x01){ /* device 1 selected*/
+			memcpy(&P2P_Server_App_Context.OTATimestamp, &(pNotification->DataTransfered.pPayload[2]), 8);
+			P2P_Server_App_Context.OTA12HrFormat = pNotification->DataTransfered.pPayload[10];
+			P2P_Server_App_Context.OTADaylightSavings = pNotification->DataTransfered.pPayload[11];
+
+			RTC_TimeTypeDef sTime = {0};
+			RTC_DateTypeDef sDate = {0};
+
+			uint8_t timestampvals[8];
+			memcpy(timestampvals, &(P2P_Server_App_Context.OTATimestamp), 8);
+
+			uint8_t AMPM = timestampvals[0];
+
+			sTime.Hours      = timestampvals[3];
+			sTime.Minutes    = timestampvals[2];
+			sTime.Seconds    = timestampvals[1];
+			sTime.SubSeconds = 0x0;
+			sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+
+			if (P2P_Server_App_Context.OTADaylightSavings){ sTime.DayLightSaving = RTC_DAYLIGHTSAVING_ADD1H; }
+
+			sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+			if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+			  {
+				Error_Handler();
+			  }
+			sDate.WeekDay = timestampvals[7];
+			sDate.Month   = timestampvals[6];
+			sDate.Date    = timestampvals[5];
+			sDate.Year    = timestampvals[4];
+			if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+			  {
+				Error_Handler();
+			  }
+
+		  APP_DBG_MSG("-- P2P APPLICATION SERVER 1 : MSG RX\n");
           APP_DBG_MSG(" \n\r");
-          P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
-        }
-        if(pNotification->DataTransfered.pPayload[1] == 0x00)
-        {
-          BSP_LED_Off(LED_BLUE);
-          APP_DBG_MSG("-- P2P APPLICATION SERVER 1 : LED1 OFF\n");
-          APP_DBG_MSG(" \n\r");
-          P2P_Server_App_Context.LedControl.Led1=0x00; /* LED1 OFF */
-        }
+          //P2P_Server_App_Context.LedControl.Led1=0x01; /* LED1 ON */
+
       }
 
 /* USER CODE END P2PS_STM_WRITE_EVT */
@@ -232,44 +287,14 @@ void P2PS_APP_Init(void)
 /* USER CODE BEGIN FD */
 void P2PS_APP_LED_BUTTON_context_Init(void){
 
-  BSP_LED_Off(LED_BLUE);
 
-  #if(P2P_SERVER1 != 0)
   P2P_Server_App_Context.LedControl.Device_Led_Selection=0x01; /* Device1 */
   P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
   P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x01;/* Device1 */
   P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
-#if(P2P_SERVER2 != 0)
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x02; /* Device2 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x02;/* Device2 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
-#if(P2P_SERVER3 != 0)
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x03; /* Device3 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x03; /* Device3 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
-#if(P2P_SERVER4 != 0)
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x04; /* Device4 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x04; /* Device4 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
- #if(P2P_SERVER5 != 0)
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x05; /* Device5 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x05; /* Device5 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
-#if(P2P_SERVER6 != 0)
-  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x06; /* device6 */
-  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x06; /* Device6 */
-  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-#endif
+  P2P_Server_App_Context.OTATimestamp=0x0000000000000000;
+  P2P_Server_App_Context.OTA12HrFormat=0x00;
+  P2P_Server_App_Context.OTADaylightSavings=0x00;
 }
 
 void P2PS_APP_SW1_Button_Action(void)
@@ -300,12 +325,18 @@ void P2PS_Send_Notification(void)
     APP_DBG_MSG(" \n\r");
 
 
-    P2PS_STM_App_Update_Char(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&P2P_Server_App_Context.ButtonControl);
-    //aci_gatt_update_char_value(aPeerToPeerContext.PeerToPeerSvcHdle,
-    //                             aPeerToPeerContext.P2PNotifyServerToClientCharHdle,
-    //                              0, /* charValOffset */
-    //                             2, /* charValueLen */
-	//							 (uint8_t *)&P2P_Server_App_Context.ButtonControl);
+    RTC_TimeTypeDef cTime;
+	RTC_DateTypeDef cDate;
+
+	HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+	HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+
+	uint64_t sendval = (cDate.WeekDay << (8*3)) | (cDate.Month << (8*2)) | (cDate.Date << (8*1)) | cDate.Year;
+	sendval <<= 32;
+	sendval |= (cTime.Hours << (8*3)) | (cTime.Minutes << (8*2)) | (cTime.Seconds << (8*1)) | (cTime.TimeFormat);
+
+	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 8);
+	//P2PS_STM_App_Update_Char(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&P2P_Server_App_Context.ButtonControl);
 
 
    } else {
