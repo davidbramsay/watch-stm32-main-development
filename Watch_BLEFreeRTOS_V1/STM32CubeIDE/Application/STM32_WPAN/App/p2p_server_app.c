@@ -28,8 +28,6 @@
 #include "cmsis_os.h"
 #include "p2p_stm.h"
 
-extern RTC_HandleTypeDef hrtc;
-
 /* Private function prototypes -----------------------------------------------*/
 void P2PS_APP_Context_Init(void);
 
@@ -161,6 +159,17 @@ void P2PS_Send_Data(uint16_t data)
 	sendval[0] = data;
 
 	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 10);
+
+	//if sending text, send text
+	if ((data & 0xFF00) == 0x6300){
+		P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&ScreenState.screenText, sizeof(ScreenState.screenText));
+		for (int i=0; i<8; i++){
+			//send full 128 byte char array; 8 chunks of 16 bytes
+			P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&ScreenState.screenText[i*8], 16);
+		}
+
+	}
+
 
    } else {
     APP_DBG_MSG("-- P2P APPLICATION SERVER : CAN'T INFORM CLIENT -  NOTIFICATION DISABLED\n ");

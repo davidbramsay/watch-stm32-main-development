@@ -61,14 +61,8 @@ extern P2P_Server_App_Context_t P2P_Server_App_Context;
 #define NUM_PIXELS 12
 
 I2C_HandleTypeDef hi2c1;
-
-RTC_HandleTypeDef hrtc;
-
 SPI_HandleTypeDef hspi1;
-
 TIM_HandleTypeDef htim1;
-
-RTC_HandleTypeDef hrtc;
 
 /* USER CODE BEGIN PV */
 /* Definitions for screenUpdate */
@@ -118,7 +112,7 @@ osThreadId_t bleRXHandle;
 const osThreadAttr_t bleRX_attributes = {
   .name = "bleRX",
   .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 4
+  .stack_size = 128 * 8
 };
 /* Definitions for LEDTimer */
 osThreadId_t LEDTimerHandle;
@@ -132,7 +126,7 @@ osThreadId_t touchReadHandle;
 const osThreadAttr_t touchRead_attributes = {
   .name = "touchRead",
   .priority = (osPriority_t) osPriorityAboveNormal,
-  .stack_size = 128 * 4
+  .stack_size = 128 * 8
 };
 /* Definitions for bleTXqueue */
 osMessageQueueId_t bleTXqueueHandle;
@@ -150,7 +144,7 @@ const osMutexAttr_t rtcMutex_attributes = {
   .name = "rtcMutex"
 };
 /* Definitions for screenTextMutex */
-osMutexId_t screenTextMutexHandle;
+//osMutexId_t screenTextMutexHandle; //global
 const osMutexAttr_t screenTextMutex_attributes = {
   .name = "screenTextMutex"
 };
@@ -181,22 +175,6 @@ typedef struct {
 LedState_t LedState;
 //protected by ledStateMutex
 
-typedef enum {
-	SCREEN_OFF,
-	SCREEN_TIME,
-	SCREEN_TOUCH_TRACK,
-	SCREEN_TEXT,
-	SCREEN_IMAGE
-} ScreenStatus_t;
-
-typedef struct {
-	char screenText[128];
-	uint8_t screenImage;
-	uint8_t len;
-} ScreenState_t;
-
-ScreenState_t ScreenState;
-//protected by screenTextMutex
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -819,6 +797,7 @@ void startScreenUpdate(void *argument)
   char screenText[128];
   char time[10];
   uint8_t imageNum;
+  uint16_t bleval;
 
   /* Infinite loop */
   for(;;)
@@ -829,8 +808,6 @@ void startScreenUpdate(void *argument)
 	  	switch(screenStatus){
 
 	  			case SCREEN_TIME:
-	  				//test time
-	  				//er_oled_time("1743");
 
 	  				//only hrmin
 	  				get_RTC_hrmin(time);
@@ -842,9 +819,19 @@ void startScreenUpdate(void *argument)
 	  				//er_oled_string(0, 14, time, 12, 1, oled_buf);
 	  				//er_oled_display(oled_buf);
 
+	  				//notify BLE
+	  				bleval = 0x6100;
+	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+
 	  				break;
 
 	  			case SCREEN_TOUCH_TRACK:
+
+	  				//NOT IMPLEMENTED
+
+	  				//notify BLE
+	  				bleval = 0x6200;
+	  			    osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
 
 	  				break;
 
@@ -861,10 +848,15 @@ void startScreenUpdate(void *argument)
 	  				else {er_oled_string(0, 14, "invalid image number", 24, 1, oled_buf);}
 
 	  				er_oled_display(oled_buf);
-	  				osDelay(1000);
+	  				osDelay(100);
 	  				command(0xa7);//--set Negative display
-	  				osDelay(1000);
+	  				osDelay(100);
 	  				command(0xa6);//--set normal display
+
+	  				//notify BLE
+	  				bleval = 0x6400 | imageNum;
+	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+
 	  				break;
 
 	  			case SCREEN_TEXT:
@@ -876,11 +868,21 @@ void startScreenUpdate(void *argument)
 	  				er_oled_string(0, 14, screenText, 12, 1, oled_buf);
 	  				er_oled_display(oled_buf);
 	  				osDelay(5);
+
+	  				//notify BLE
+	  			    bleval = 0x6300 | sizeof(ScreenState.screenText);
+	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+
 	  				break;
 
 	  			default: //includes SCREEN_OFF
 	  				er_oled_clear(oled_buf);
 	  				er_oled_display(oled_buf);
+
+	  				//notify BLE
+	  				bleval = 0x6000;
+	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+
 	  				break;
 	  	}
 
@@ -1130,16 +1132,25 @@ void startVibrateControl(void *argument)
   int duty_cycle = 79; //0 is off, up to ~80
   htim1.Instance->CCR2 = duty_cycle;
 
+  uint32_t pulse_dur = 1000;
+  uint16_t bleval;
+
   /* Infinite loop */
   for(;;)
   {
+	xTaskNotifyWait(0x00, 0x00, &pulse_dur, portMAX_DELAY);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
-    osDelay(2000);
+	//notify BLE
+    bleval = 0x3100;
+	osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+
+    osDelay(pulse_dur);
 
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 
-    osDelay(2000);
+    bleval = 0x3000;
+   	osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
 
   }
   /* USER CODE END startVibrateControl */
@@ -1183,6 +1194,7 @@ void startRTCTick(void *argument)
 
     ScreenStatus_t newScreen = SCREEN_TIME;
     xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
+    xTaskNotify(vibrateControlHandle, 100, eSetValueWithOverwrite);
 
     osDelay(1000);
 
@@ -1203,6 +1215,8 @@ void startRTCTick(void *argument)
 	strncpy(ScreenState.screenText, "arbitrary", sizeof("arbitrary"));
 	osMutexRelease(screenTextMutexHandle);
     xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
+
+    //xTaskNotify(vibrateControlHandle, 200, eSetValueWithOverwrite);
 
     osDelay(1000);
 
@@ -1287,14 +1301,34 @@ void startBLERX(void *argument)
 
   P2PS_STM_Data_t rxData;
 
+  uint8_t continuing = 0;
+  char textbuffer[128];
+
   for(;;)
   {
 
 	if (osMessageQueueGet(bleRXqueueHandle, &rxData, NULL, osWaitForever) == osOK){
 
-			memcpy(&P2P_Server_App_Context.OTATimestamp, &(rxData.pPayload[2]), 8);
-    	    P2P_Server_App_Context.OTA12HrFormat = rxData.pPayload[10];
-    		P2P_Server_App_Context.OTADaylightSavings = rxData.pPayload[11];
+		//--- PRINT AND DEBUG HEX RX FROM PHONE ---//
+		//CAREFUL : prints on CENTER LINE FIRST, then bottom line, *then wraps to top line*
+		//can only print 12 bytes at a time
+		/*
+		char str[128];
+		uint8_t index = 0;
+		for (int i=0; i<rxData.Length;i++){
+			index += sprintf(&str[index], "%02X:", rxData.pPayload[i]);
+		}
+		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+		strncpy(ScreenState.screenText, str, sizeof(str));
+		osMutexRelease(screenTextMutexHandle);
+		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+		*/
+		//--- END PRINT HEX PAYLOAD FIRST 12 BYTES
+
+		if (rxData.pPayload[0] == 0x00) { // timestamp update starts with 0x00
+			memcpy(&P2P_Server_App_Context.OTATimestamp, &(rxData.pPayload[1]), 8);
+    	    P2P_Server_App_Context.OTA12HrFormat = rxData.pPayload[9];
+    		P2P_Server_App_Context.OTADaylightSavings = rxData.pPayload[10];
 
     	    RTC_TimeTypeDef sTime = {0};
     		RTC_DateTypeDef sDate = {0};
@@ -1304,9 +1338,9 @@ void startBLERX(void *argument)
 
     		uint8_t AMPM = timestampvals[0];
 
-    		sTime.Hours      = timestampvals[3];
-    		sTime.Minutes    = timestampvals[2];
-    		sTime.Seconds    = timestampvals[1];
+    		sTime.Hours      = timestampvals[4];
+    		sTime.Minutes    = timestampvals[5];
+    		sTime.Seconds    = timestampvals[6];
     		sTime.SubSeconds = 0x0;
     		sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
 
@@ -1314,15 +1348,57 @@ void startBLERX(void *argument)
 
     		sTime.StoreOperation = RTC_STOREOPERATION_RESET;
 
-    		sDate.WeekDay = timestampvals[7];
-    		sDate.Month   = timestampvals[6];
-    		sDate.Date    = timestampvals[5];
-    		sDate.Year    = timestampvals[4];
+    		sDate.WeekDay = timestampvals[0];
+    		sDate.Month   = timestampvals[1];
+    		sDate.Date    = timestampvals[2];
+    		sDate.Year    = timestampvals[3];
 
     		osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
     		if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
     		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
     	    osMutexRelease(rtcMutexHandle);
+
+		} else if (rxData.pPayload[0] == 0x06) {//screen text update starts with 0x06
+
+			//works great if string sent is <=18 and has a '00' byte (19 + update byte, 20 byte MTU)
+			//'00' obviously connotes the end of the string.
+			//should edit this to have a char buffer in place (128 byte) that copies over
+			// rxData.pPayload[1] for rxData.Length - 1, check last byte.  if 00 stop,
+			//otherwise wait and keep filling buffer with next packet.
+			//write a complementary send function that adds a hex '00' and chops the full string
+			//into 19 byte chunks when sending with 0x01 header from phone.
+			strncpy(&(textbuffer[continuing*19]), &(rxData.pPayload[1]), rxData.Length - 1);
+			continuing += 1;
+
+			if (rxData.pPayload[rxData.Length-1] == 0x00) { //completed string
+
+				osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+				strncpy(ScreenState.screenText, textbuffer, 128);
+				osMutexRelease(screenTextMutexHandle);
+				xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+
+				continuing = 0;
+
+			}
+
+			//osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+			//strncpy(ScreenState.screenText, &(rxData.pPayload[1]), rxData.Length - 1);
+			//osMutexRelease(screenTextMutexHandle);
+			//xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+
+		} else if (rxData.pPayload[0] == 0x03) { //vibrate payload with duration to vibrate starts with 0x03
+
+			//uint8_t duration[4] = {0};
+	    	//memcpy(&(duration[4-(rxData.Length-1)]), &(rxData.pPayload[1]), rxData.Length-1);
+	    	//uint32_t send_duration = duration[0] << 24 | duration[1] << 16 | duration[2] << 8 | duration[3];
+
+	    	uint32_t send_duration = 0;
+	    	for (uint8_t i=0; i<rxData.Length-1; i++){
+	    		send_duration |= rxData.pPayload[1+i] << ((rxData.Length-2-i)*8);
+	    	}
+
+	    	xTaskNotify(vibrateControlHandle, send_duration, eSetValueWithOverwrite);
+	    }
 	}
   }
   /* USER CODE END startBLERX */
@@ -1425,6 +1501,9 @@ void startTouchRead(void *argument)
 		   //update touch stuff!
 		   last_minute = current_minute;
 	   	   er_oled_print_2digit(current_minute);
+
+	   	   uint16_t touchval = 0x4000 | current_minute;
+	   	   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
 	   }
 
 	   //optional
@@ -1448,12 +1527,15 @@ void startTouchRead(void *argument)
 		   touch_end_count = 0;
 
 		   //DO THINGS WITH CONFIRMED TOUCH == LAST_MINUTE
-		   osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
 		   char out_text[10];
 		   sprintf(out_text, "FINAL: %d", last_minute);
+		   osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
 		   strncpy(ScreenState.screenText, out_text, sizeof(out_text));
 		   osMutexRelease(screenTextMutexHandle);
 		   xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+
+		   uint16_t touchval = 0x5000 | last_minute;
+		   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
 
 		   last_minute = -1;
 

@@ -34,9 +34,6 @@ extern "C" {
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
-osMutexId_t rtcMutexHandle;
-osMessageQueueId_t bleRXqueueHandle;
-
 #define OLED_RESET_Pin GPIO_PIN_0
 #define OLED_RESET_GPIO_Port GPIOB
 #define BUTTON_1_Pin GPIO_PIN_3
@@ -48,6 +45,29 @@ osMessageQueueId_t bleRXqueueHandle;
 #define BUTTON_3_Pin GPIO_PIN_5
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
+
+typedef enum {
+	SCREEN_OFF,
+	SCREEN_TIME,
+	SCREEN_TOUCH_TRACK,
+	SCREEN_TEXT,
+	SCREEN_IMAGE
+} ScreenStatus_t;
+
+typedef struct {
+	char screenText[128];
+	uint8_t screenImage;
+	uint8_t len;
+} ScreenState_t;
+
+ScreenState_t ScreenState; //protected by screenTextMutex
+osMutexId_t screenTextMutexHandle;
+
+RTC_HandleTypeDef hrtc; //protected by rtcMutexHandle
+osMutexId_t rtcMutexHandle;
+
+osMessageQueueId_t bleRXqueueHandle;
+
 
 #ifdef __cplusplus
 }
