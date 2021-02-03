@@ -1404,6 +1404,10 @@ void startBLERX(void *argument)
 	    	}
 
 	    	xTaskNotify(vibrateControlHandle, send_duration, eSetValueWithOverwrite);
+	    } else if (rxData.pPayload[0] == 0x07) { //led state update
+	    	osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
+	    	LedState.currentMode = rxData.pPayload[1];
+	    	osMutexRelease(ledStateMutexHandle);
 	    }
 	}
   }
