@@ -32,7 +32,8 @@ void Dotstar_Init(DotStar_InitHandle* dotstar_init){
      dotstar_state.numLEDs + ((dotstar_state.numLEDs + 3) / 4) : // MONO: 10 bits/pixel, round up to next byte
      dotstar_state.numLEDs * 3;              // COLOR: 3 bytes/pixel
 
-   dotstar_state.pixels = (uint8_t *)malloc(bytes);
+   //dotstar_state.pixels = (uint8_t *)malloc(bytes);
+   dotstar_state.pixels = (uint8_t *)pvPortMalloc(bytes);
 }
 
 #define spi_out(n) HAL_SPI_Transmit(dotstar_state.spiHandle, n, 1, HAL_MAX_DELAY);

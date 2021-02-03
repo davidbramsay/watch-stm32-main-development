@@ -77,7 +77,7 @@ osThreadId_t LEDControlHandle;
 const osThreadAttr_t LEDControl_attributes = {
   .name = "LEDControl",
   .priority = (osPriority_t) osPriorityBelowNormal,
-  .stack_size = 128 * 4
+  .stack_size = 128 * 8
 };
 /* Definitions for buttonPress */
 osThreadId_t buttonPressHandle;
@@ -544,6 +544,10 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CRCPolynomial = 7;
   hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
   hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+
+  //hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  //hspi1.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
@@ -671,6 +675,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI3_IRQn, 15, 0);
@@ -907,7 +913,7 @@ void startLEDControl(void *argument)
    	//osMutexRelease(ledStateMutexHandle);
 
   //For LED to work on new board (multiplexed with SPI_NSS), we need to pull PA4 high
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+  //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
 
 
   //LedState Init
