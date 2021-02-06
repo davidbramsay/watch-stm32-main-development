@@ -52,6 +52,8 @@
 #include "er_oled.h"
 #include "dotstar.h"
 #include "iqs263.h"
+#include "si7021.h"
+#include "veml7700.h"
 
 #include "p2p_server_app.h"
 
@@ -128,6 +130,13 @@ const osThreadAttr_t touchRead_attributes = {
   .priority = (osPriority_t) osPriorityAboveNormal,
   .stack_size = 128 * 8
 };
+/* Definitions for conditionsPoll */
+osThreadId_t conditionsPollHandle;
+const osThreadAttr_t conditionsPoll_attributes = {
+  .name = "conditionsPoll",
+  .priority = (osPriority_t) osPriorityBelowNormal,
+  .stack_size = 128 * 8
+};
 /* Definitions for bleTXqueue */
 osMessageQueueId_t bleTXqueueHandle;
 const osMessageQueueAttr_t bleTXqueue_attributes = {
@@ -193,6 +202,7 @@ void startBLETX(void *argument);
 void startBLERX(void *argument);
 void startLEDTimer(void *argument);
 void startTouchRead(void *argument);
+void startConditionsPoll(void *argument);
 
 /* USER CODE BEGIN PFP */
 void PeriphClock_Config(void);
@@ -290,6 +300,9 @@ int main(void)
 
         /* creation of touchRead */
         touchReadHandle = osThreadNew(startTouchRead, NULL, &touchRead_attributes);
+
+        /* creation of conditionsPoll */
+        conditionsPollHandle = osThreadNew(startConditionsPoll, NULL, &conditionsPoll_attributes);
 
   /* Init code for STM32_WPAN */
   APPE_Init();
@@ -791,7 +804,7 @@ void startScreenUpdate(void *argument)
 
   er_oled_begin();
   er_oled_clear(oled_buf);
-  er_oled_string(6, 14, "DRAMSAY", 12, 1, oled_buf);
+  er_oled_string(6, 14, "  DRAMSAY", 12, 1, oled_buf);
   er_oled_display(oled_buf);
 
   osDelay(3000);
@@ -1562,6 +1575,69 @@ void startTouchRead(void *argument)
 }
 
 
+/* USER CODE BEGIN Header_startConditionsPoll */
+/**
+* @brief Function implementing the conditionsPoll thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_startConditionsPoll */
+void startConditionsPoll(void *argument)
+{
+	//poll ambient temp, humidity, visible light, white light
+	//every 5sec
+  	veml_Setup(hi2c1, VEML_5S_POLLING);
+
+  	if (si7021_set_config(&hi2c1, SI7021_HEATER_OFF, SI7021_RESOLUTION_RH12_TEMP14) == HAL_ERROR) {
+  		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+  		strncpy(ScreenState.screenText, "FAIL: Config Set", sizeof("FAIL: Config Set"));
+  		osMutexRelease(screenTextMutexHandle);
+  		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+  	  }
+
+  	  //set heater power
+  	  if (si7021_set_heater_power(&hi2c1, SI7021_HEATER_POWER_3MA) == HAL_ERROR) {
+  		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+  		strncpy(ScreenState.screenText, "FAIL: Heater Set", sizeof("FAIL: Heater Set"));
+  		osMutexRelease(screenTextMutexHandle);
+  		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+  	  }
+
+  	float lux;
+  	float whitelux;
+  	float humidity;
+    float temperature;
+
+  	char printstring[128];
+
+  	for (;;){
+  		lux = veml_Get_Lux();
+    	whitelux = veml_Get_White_Lux();
+    	temperature = si7021_measure_temperature(&hi2c1);
+    	humidity = si7021_measure_humidity(&hi2c1);
+
+
+    	sprintf(printstring, "  lux:%6dwhite:%6d", (uint8_t)lux, (uint8_t)whitelux);
+    	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+    	strncpy(ScreenState.screenText, printstring, sizeof(printstring));
+    	osMutexRelease(screenTextMutexHandle);
+    	xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+
+    	osDelay(2500);
+
+    	sprintf(printstring, " temp: %d    humd: %d", (uint8_t)temperature, (uint8_t)humidity);
+    	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
+        strncpy(ScreenState.screenText, printstring, sizeof(printstring));
+        osMutexRelease(screenTextMutexHandle);
+        xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+
+    	osDelay(2500);
+  	}
+
+/* USER CODE END startConditionsPoll */
+}
+
+
 void PeriphClock_Config(void)
 {
   #if (CFG_USB_INTERFACE_ENABLE != 0)
@@ -1766,6 +1842,23 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
   /* USER CODE END Callback 1 */
 }
+
+
+/*
+//ISSUES WITH MALLOC AND FREE AND FREERTOS, need to use included
+//NEWLIB uses malloc to print non-integers with sprintf; this functionality is broken
+//with freertos without work
+
+void *malloc( size_t xBytes )
+{
+     return pvPortMalloc( xBytes );
+}
+
+void free( void *pvBuffer )
+{
+     vPortFree( pvBuffer );
+}
+*/
 
 /**
   * @brief  This function is executed in case of error occurrence.
