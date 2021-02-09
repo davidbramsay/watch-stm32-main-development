@@ -76,7 +76,7 @@ HAL_StatusTypeDef veml_PushState(){ //helper to push power/gain/it to VEML7700
 	  //I2C_Write_16b(VEML7700_ALS_CONFIG, out_data);
 	}
 
-	return HAL_OK;
+	return resp;
 }
 
 HAL_StatusTypeDef veml_Setup(I2C_HandleTypeDef i2cHandle, VEML7700_Mode_t Mode){

@@ -58,26 +58,77 @@
 #include "p2p_server_app.h"
 
 
-extern P2P_Server_App_Context_t P2P_Server_App_Context;
-
 #define NUM_PIXELS 12
 
 I2C_HandleTypeDef hi2c1;
 SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim1;
 
+
+//THREADS
+// esmMain -- launch ESM at random intervals, notify UI, handle
+//            timeouts for interaction and alerts.  main thread.
+//            on init timeout for time estimate, if mode has changed
+//            because of button press (sleep) skip rest, otherwise loop
+//            alert.  on timeout for other survey, simply skip rest.
+//            wait to launch if not RESTING.
+
+// uiControl -- touch and screen update handling.  Send ui events
+//              to BLETX, notify esmMain when ui event complete.
+//              loop that check for press and mode; faster loop
+//              when not resting.
+
+// alert -- led flash and vibrate when notified by esmMain.
+
+// conditionsPoll -- poll lux/whitelux/temp/humd every 10s, send
+//                   to BLETX
+
+// BLERX -- update RTC timestamp.  Set bounds for times of day
+//          that are okay to query, sleep for day.
+
+// BLETX -- if queue is empty send data over BLE to phone;
+//                            if send data fails, queue.
+//          otherwise add data to queue and try to send queue.
+//          if success, keep sending data until queue is empty
+//          and set queue pointer to NULL.
+//          accepts either (1) send conditions
+//                         (2) send timestamp (use last_timestamp).
+//                         (3) send survey result raw 4bits for answer, 4 bits for survey num
+
+// buttonPressed -- send invalidate data/sleep event to BLERX, end
+//                  survey, reset mode, restart timer for esm
+//                  poll.  any data between this and previous
+//                  survey start event is invalidated.
+
+//QUEUES and Global Data Structs
+
+// ProgramMode -- shared between esmMain and uiControl to
+// identify what should be on the screen during touch events
+// SURVEY STATE -- shared between esmMain and uiControl to
+// identify what should be on the screen (if not time estimate)
+// LAST TIME ESTIMATE -- last time that time is checked, start here
+// when estimating new time
+// NOTIFY TIMEBOUNDS -- time bounds for when to have notifications, intervals to estimate
+// BLE TX and RX QUEUE -- send data to and from BLE
+
+// SendQueue -- dynamic data of BLE data that hasn't sent
+
+//UI tools -- (1) time estimate based on previous time
+//            (2) survey based on Survey_t, with partial screen updates
+
+
 /* USER CODE BEGIN PV */
-/* Definitions for screenUpdate */
-osThreadId_t screenUpdateHandle;
-const osThreadAttr_t screenUpdate_attributes = {
-  .name = "screenUpdate",
+/* Definitions for uiControl */
+osThreadId_t uiControlHandle;
+const osThreadAttr_t uiControl_attributes = {
+  .name = "uiControl",
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
 };
-/* Definitions for LEDControl */
-osThreadId_t LEDControlHandle;
-const osThreadAttr_t LEDControl_attributes = {
-  .name = "LEDControl",
+/* Definitions for esmMainl */
+osThreadId_t esmMainHandle;
+const osThreadAttr_t esmMain_attributes = {
+  .name = "esmMain",
   .priority = (osPriority_t) osPriorityBelowNormal,
   .stack_size = 128 * 8
 };
@@ -88,46 +139,11 @@ const osThreadAttr_t buttonPress_attributes = {
   .priority = (osPriority_t) osPriorityAboveNormal,
   .stack_size = 128 * 4
 };
-/* Definitions for vibrateControl */
-osThreadId_t vibrateControlHandle;
-const osThreadAttr_t vibrateControl_attributes = {
-  .name = "vibrateControl",
+/* Definitions for alert */
+osThreadId_t alertHandle;
+const osThreadAttr_t alert_attributes = {
+  .name = "alert",
   .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 4
-};
-/* Definitions for rtcSecondTick */
-osThreadId_t rtcSecondTickHandle;
-const osThreadAttr_t rtcSecondTick_attributes = {
-  .name = "rtcSecondTick",
-  .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 4
-};
-/* Definitions for bleTX */
-osThreadId_t bleTXHandle;
-const osThreadAttr_t bleTX_attributes = {
-  .name = "bleTX",
-  .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 8
-};
-/* Definitions for bleRX */
-osThreadId_t bleRXHandle;
-const osThreadAttr_t bleRX_attributes = {
-  .name = "bleRX",
-  .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 8
-};
-/* Definitions for LEDTimer */
-osThreadId_t LEDTimerHandle;
-const osThreadAttr_t LEDTimer_attributes = {
-  .name = "LEDTimer",
-  .priority = (osPriority_t) osPriorityLow,
-  .stack_size = 128 * 4
-};
-/* Definitions for touchRead */
-osThreadId_t touchReadHandle;
-const osThreadAttr_t touchRead_attributes = {
-  .name = "touchRead",
-  .priority = (osPriority_t) osPriorityAboveNormal,
   .stack_size = 128 * 8
 };
 /* Definitions for conditionsPoll */
@@ -137,6 +153,23 @@ const osThreadAttr_t conditionsPoll_attributes = {
   .priority = (osPriority_t) osPriorityBelowNormal,
   .stack_size = 128 * 8
 };
+/* Definitions for bleTX */
+osThreadId_t bleTXHandle;
+const osThreadAttr_t bleTX_attributes = {
+  .name = "bleTX",
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 128 * 8
+};
+/* Definitions for bleRX */
+osThreadId_t bleRXHandle;
+const osThreadAttr_t bleRX_attributes = {
+  .name = "bleRX",
+  .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 128 * 8
+};
+
+
+
 /* Definitions for bleTXqueue */
 osMessageQueueId_t bleTXqueueHandle;
 const osMessageQueueAttr_t bleTXqueue_attributes = {
@@ -147,21 +180,44 @@ const osMessageQueueAttr_t bleTXqueue_attributes = {
 const osMessageQueueAttr_t bleRXqueue_attributes = {
   .name = "bleRXqueue"
 };
+
+
 /* Definitions for rtcMutex */
 //osMutexId_t rtcMutexHandle; //global
 const osMutexAttr_t rtcMutex_attributes = {
   .name = "rtcMutex"
 };
-/* Definitions for screenTextMutex */
-//osMutexId_t screenTextMutexHandle; //global
-const osMutexAttr_t screenTextMutex_attributes = {
-  .name = "screenTextMutex"
+/* Definitions for timeBoundMutex */
+osMutexId_t timeBoundMutexHandle;
+const osMutexAttr_t timeBoundMutex_attributes = {
+  .name = "timeBoundMutex"
 };
-/* Definitions for ledStateMutex */
-osMutexId_t ledStateMutexHandle;
-const osMutexAttr_t ledStateMutex_attributes = {
-  .name = "ledStateMutex"
+/* Definitions for lastSeenMutex */
+osMutexId_t lastSeenMutexHandle;
+const osMutexAttr_t lastSeenMutex_attributes = {
+  .name = "lastSeenMutex"
 };
+/* Definitions for timeEstimateMutex */
+osMutexId_t timeEstimateMutexHandle;
+const osMutexAttr_t timeEstimateMutex_attributes = {
+  .name = "timeEstimateMutex"
+};
+/* Definitions for conditionMutex */
+osMutexId_t conditionMutexHandle;
+const osMutexAttr_t conditionMutex_attributes = {
+  .name = "conditionMutex"
+};
+/* Definitions for modeMutex */
+osMutexId_t modeMutexHandle;
+const osMutexAttr_t modeMutex_attributes = {
+  .name = "modeMutex"
+};
+/* Definitions for surveyMutex */
+osMutexId_t surveyMutexHandle;
+const osMutexAttr_t surveyMutex_attributes = {
+  .name = "surveyMutex"
+};
+
 /* USER CODE BEGIN PV */
 
 
@@ -193,16 +249,14 @@ static void MX_SPI1_Init(void);
 static void MX_RF_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM1_Init(void);
-void startScreenUpdate(void *argument);
-void startLEDControl(void *argument);
+static void GlobalState_Init(void);
+void startUIControl(void *argument);
+void startESMMain(void *argument);
 void startButtonPress(void *argument);
-void startVibrateControl(void *argument);
-void startRTCTick(void *argument);
+void startAlert(void *argument);
+void startConditionsPoll(void *argument);
 void startBLETX(void *argument);
 void startBLERX(void *argument);
-void startLEDTimer(void *argument);
-void startTouchRead(void *argument);
-void startConditionsPoll(void *argument);
 
 /* USER CODE BEGIN PFP */
 void PeriphClock_Config(void);
@@ -219,6 +273,10 @@ int main(void)
    * It shall be cleared before using any HAL_FLASH_xxx() api
    */
   __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
+
+
+
+
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -247,6 +305,7 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
+  GlobalState_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -256,38 +315,50 @@ int main(void)
     /* creation of rtcMutex */
     rtcMutexHandle = osMutexNew(&rtcMutex_attributes);
 
-    /* creation of screenTextMutex */
-    screenTextMutexHandle = osMutexNew(&screenTextMutex_attributes);
+    /* creation of timeBoundMutex */
+    timeBoundMutexHandle = osMutexNew(&timeBoundMutex_attributes);
 
-    /* creation of ledStateMutex */
-    ledStateMutexHandle = osMutexNew(&ledStateMutex_attributes);
+    /* creation of lastSeenMutex */
+    lastSeenMutexHandle = osMutexNew(&lastSeenMutex_attributes);
+
+    /* creation of timeEstimateMutex */
+    timeEstimateMutexHandle = osMutexNew(&timeEstimateMutex_attributes);
+
+    /* creation of conditionMutex */
+    conditionMutexHandle = osMutexNew(&conditionMutex_attributes);
+
+    /* creation of modeMutex */
+    modeMutexHandle = osMutexNew(&modeMutex_attributes);
+
+    /* creation of surveyMutex */
+    surveyMutexHandle = osMutexNew(&surveyMutex_attributes);
 
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_QUEUES */
       /* creation of bleTXqueue */
-      bleTXqueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &bleTXqueue_attributes);
+      bleTXqueueHandle = osMessageQueueNew (16, sizeof(BLETX_Queue_t), &bleTXqueue_attributes);
 
       /* creation of bleRXqueue */
-      bleRXqueueHandle = osMessageQueueNew (16, sizeof(P2PS_STM_Data_t), &bleRXqueue_attributes);
+      bleRXqueueHandle = osMessageQueueNew (16, sizeof(P2PS_STM_Data_t *), &bleRXqueue_attributes);
 
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-        /* creation of screenUpdate */
-        screenUpdateHandle = osThreadNew(startScreenUpdate, NULL, &screenUpdate_attributes);
+        /* creation of uiControl */
+        uiControlHandle = osThreadNew(startUIControl, NULL, &uiControl_attributes);
 
-        /* creation of LEDControl */
-        LEDControlHandle = osThreadNew(startLEDControl, NULL, &LEDControl_attributes);
+        /* creation of ESMMain */
+        esmMainHandle = osThreadNew(startESMMain, NULL, &esmMain_attributes);
 
         /* creation of buttonPress */
         buttonPressHandle = osThreadNew(startButtonPress, NULL, &buttonPress_attributes);
 
-        /* creation of vibrateControl */
-        vibrateControlHandle = osThreadNew(startVibrateControl, NULL, &vibrateControl_attributes);
+        /* creation of alert */
+        alertHandle = osThreadNew(startAlert, NULL, &alert_attributes);
 
-        /* creation of rtcSecondTick */
-        rtcSecondTickHandle = osThreadNew(startRTCTick, NULL, &rtcSecondTick_attributes);
+        /* creation of conditionsPoll */
+        conditionsPollHandle = osThreadNew(startConditionsPoll, NULL, &conditionsPoll_attributes);
 
         /* creation of bleTX */
         bleTXHandle = osThreadNew(startBLETX, NULL, &bleTX_attributes);
@@ -295,14 +366,6 @@ int main(void)
         /* creation of bleRX */
         bleRXHandle = osThreadNew(startBLERX, NULL, &bleRX_attributes);
 
-        /* creation of LEDTimer */
-        LEDTimerHandle = osThreadNew(startLEDTimer, NULL, &LEDTimer_attributes);
-
-        /* creation of touchRead */
-        touchReadHandle = osThreadNew(startTouchRead, NULL, &touchRead_attributes);
-
-        /* creation of conditionsPoll */
-        conditionsPollHandle = osThreadNew(startConditionsPoll, NULL, &conditionsPoll_attributes);
 
   /* Init code for STM32_WPAN */
   APPE_Init();
@@ -395,7 +458,6 @@ void SystemClock_Config(void)
   /* USER CODE END Smps */
 }
 
-
 static void MX_I2C1_Init(void)
 {
 
@@ -436,6 +498,7 @@ static void MX_I2C1_Init(void)
   /* USER CODE END I2C1_Init 2 */
 
 }
+
 /**
   * @brief RF Initialization Function
   * @param None
@@ -504,9 +567,9 @@ static void MX_RTC_Init(void)
     RTC_TimeTypeDef sTime = {0};
     RTC_DateTypeDef sDate = {0};
 
-    sTime.Hours = 0x0;
-    sTime.Minutes = 0x0;
-    sTime.Seconds = 0x0;
+    sTime.Hours = 0x11;
+    sTime.Minutes = 0x59;
+    sTime.Seconds = 0x29;
     sTime.SubSeconds = 0x0;
     sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
     sTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -514,10 +577,10 @@ static void MX_RTC_Init(void)
     {
       Error_Handler();
     }
-    sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-    sDate.Month = RTC_MONTH_JANUARY;
-    sDate.Date = 0x1;
-    sDate.Year = 0x0;
+    sDate.WeekDay = RTC_WEEKDAY_TUESDAY;
+    sDate.Month = RTC_MONTH_MARCH;
+    sDate.Date = 0x29;
+    sDate.Year = 0x20;
 
     if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
     {
@@ -528,8 +591,6 @@ static void MX_RTC_Init(void)
   /* USER CODE END RTC_Init 2 */
 
 }
-
-
 
 /* USER CODE BEGIN 4 */
 static void MX_SPI1_Init(void)
@@ -705,6 +766,39 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+
+static void GlobalState_Init(){
+	GlobalState.timeBound.startHR_BCD = 0x10; //10AM, BCD
+	GlobalState.timeBound.endHR_BCD = 0x22;   //10PM, BCD
+	GlobalState.timeBound.minInterval = 15;   //15min min interval
+	GlobalState.timeBound.maxInterval = 90;   //90min max interval
+
+	RTC_TimeTypeDef tempTime;
+	RTC_DateTypeDef tempDate;
+	HAL_RTC_GetTime(&hrtc, &tempTime, RTC_FORMAT_BCD);
+	HAL_RTC_GetDate(&hrtc, &tempDate, RTC_FORMAT_BCD);
+
+	//shallow structs so no issues with assignment
+	GlobalState.lastSeenTime.time = tempTime;
+	GlobalState.lastSeenTime.date = tempDate;
+
+	GlobalState.timeEstimateSample.time = tempTime;
+	GlobalState.timeEstimateSample.date = tempDate;
+
+	GlobalState.lastConditions.lux = 0.0;
+	GlobalState.lastConditions.whiteLux = 0.0;
+	GlobalState.lastConditions.temp = 0.0;
+	GlobalState.lastConditions.humd = 0.0;
+
+	GlobalState.programMode = MODE_RESTING;
+
+	char temp_string[10] = "  DRAMSAY.";
+	strncpy(GlobalState.surveyState.screenText, temp_string, strlen(temp_string));
+	GlobalState.surveyState.screenTextLength = strlen(temp_string);
+	memset(GlobalState.surveyState.optionArray, 0, sizeof(GlobalState.surveyState.optionArray));
+	GlobalState.surveyState.optionArrayLength = 0;
+}
+
 static inline void set_bit(long *x, int bitNum) {
     *x |= (1L << bitNum);
 }
@@ -712,7 +806,6 @@ static inline void set_bit(long *x, int bitNum) {
 static inline void clear_bit(long *x, int bitNum) {
     *x &= (~(1L << bitNum));
 }
-
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
@@ -722,24 +815,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 }
 
+HAL_StatusTypeDef updateLastSeenTime(){
 
-uint64_t get_RTC_full(){ //unverified
-    RTC_TimeTypeDef cTime;
-    RTC_DateTypeDef cDate;
+	HAL_StatusTypeDef status_1, status_2;
 
-    osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
-    HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
-    HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
-    osMutexRelease(rtcMutexHandle);
+    osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+    status_1 = HAL_RTC_GetTime(&hrtc, &(GlobalState.lastSeenTime.time), RTC_FORMAT_BCD);
+    status_2 = HAL_RTC_GetDate(&hrtc, &(GlobalState.lastSeenTime.date), RTC_FORMAT_BCD);
+    osMutexRelease(lastSeenMutexHandle);
 
-    uint64_t full_rtc_val = (cDate.WeekDay << (8*3)) | (cDate.Month << (8*2)) | (cDate.Date << (8*1)) | cDate.Year;
-    full_rtc_val <<= 32;
-    full_rtc_val |= (cTime.Hours << (8*3)) | (cTime.Minutes << (8*2)) | (cTime.Seconds << (8*1)) | (cTime.TimeFormat);
-
-    return full_rtc_val;
+    return status_1 | status_2;
 
 }
-
 
 void get_RTC_hrmin(char *dest) {
 
@@ -761,7 +848,6 @@ void get_RTC_hrmin(char *dest) {
     strncpy(dest, time, sizeof(time));
 
 }
-
 
 void get_RTC_hrminsec(char *dest) {
 
@@ -788,14 +874,14 @@ void get_RTC_hrminsec(char *dest) {
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_startScreenUpdate */
+/* USER CODE BEGIN Header startUIControl */
 /**
-  * @brief  Function implementing the screenUpdate thread.
+  * @brief  Function implementing the uiControl thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_startScreenUpdate */
-void startScreenUpdate(void *argument)
+/* USER CODE END Header startUIControl */
+void startUIControl(void *argument)
 {
   /* USER CODE BEGIN 5 */
   HAL_GPIO_WritePin(OLED_RESET_GPIO_Port, OLED_RESET_Pin, GPIO_PIN_SET);
@@ -804,246 +890,223 @@ void startScreenUpdate(void *argument)
 
   er_oled_begin();
   er_oled_clear(oled_buf);
-  er_oled_string(6, 14, "  DRAMSAY", 12, 1, oled_buf);
+  er_oled_string(0, 10, "  DRAMSAY.", 12, 1, oled_buf);
+  er_oled_string(0, 28, "resenv | mit", 12, 1, oled_buf);
   er_oled_display(oled_buf);
 
   osDelay(3000);
+
   er_oled_clear(oled_buf);
   er_oled_display(oled_buf);
 
+  int16_t current_minute = -1;
+  int16_t last_minute = -1;
 
-  ScreenStatus_t screenStatus= SCREEN_TIME;
-  char screenText[128];
-  char time[10];
-  uint8_t imageNum;
-  uint16_t bleval;
+  uint8_t touch_end_count = 0;
 
-  /* Infinite loop */
-  for(;;)
-  {
+  RTC_TimeTypeDef cTime;
+  RTC_DateTypeDef cDate;
 
-	  	//wait for someone to update screen state elsewhere and notify
-	  	xTaskNotifyWait(0x00, 0x00, &screenStatus, portMAX_DELAY);
-	  	switch(screenStatus){
+  BLETX_Queue_t bleSendData;
 
-	  			case SCREEN_TIME:
+  #define TOUCH_END_TIMEOUT 6
 
-	  				//only hrmin
-	  				get_RTC_hrmin(time);
-	  				er_oled_time(time);
-
-	  				//hrminsec
-	  				//get_RTC_hrminsec(time);
-	  				//er_oled_clear(oled_buf);
-	  				//er_oled_string(0, 14, time, 12, 1, oled_buf);
-	  				//er_oled_display(oled_buf);
-
-	  				//notify BLE
-	  				bleval = 0x6100;
-	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
-
-	  				break;
-
-	  			case SCREEN_TOUCH_TRACK:
-
-	  				//NOT IMPLEMENTED
-
-	  				//notify BLE
-	  				bleval = 0x6200;
-	  			    osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
-
-	  				break;
-
-	  			case SCREEN_IMAGE:
-
-	  				er_oled_clear(oled_buf);
-
-	  				osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-	  				imageNum = ScreenState.screenImage;
-	  				osMutexRelease(screenTextMutexHandle);
-
-	  				if (imageNum == 1){er_oled_bitmap(0, 0, PIC1, 72, 40, oled_buf);}
-	  				else if (imageNum == 2) {er_oled_bitmap(0, 0, PIC2, 72, 40, oled_buf);}
-	  				else {er_oled_string(0, 14, "invalid image number", 24, 1, oled_buf);}
-
-	  				er_oled_display(oled_buf);
-	  				osDelay(100);
-	  				command(0xa7);//--set Negative display
-	  				osDelay(100);
-	  				command(0xa6);//--set normal display
-
-	  				//notify BLE
-	  				bleval = 0x6400 | imageNum;
-	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
-
-	  				break;
-
-	  			case SCREEN_TEXT:
-
-	  				osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-	  				strncpy(screenText, ScreenState.screenText, sizeof(ScreenState.screenText));
-	  				osMutexRelease(screenTextMutexHandle);
-	  				er_oled_clear(oled_buf);
-	  				er_oled_string(0, 14, screenText, 12, 1, oled_buf);
-	  				er_oled_display(oled_buf);
-	  				osDelay(5);
-
-	  				//notify BLE
-	  			    bleval = 0x6300 | sizeof(ScreenState.screenText);
-	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
-
-	  				break;
-
-	  			default: //includes SCREEN_OFF
-	  				er_oled_clear(oled_buf);
-	  				er_oled_display(oled_buf);
-
-	  				//notify BLE
-	  				bleval = 0x6000;
-	  				osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
-
-	  				break;
-	  	}
-
+  //init peripheral (not turbo mode, poll every 250ms, if touch sample at 40Hz until no touch)
+  if (setup_iqs263() == HAL_ERROR) {
+	  strncpy(errorCondition, "ERR:IQS263ST", sizeof(errorCondition));
+	  GlobalState.programMode = MODE_ERROR;
   }
-  /* USER CODE END 5 */
+
+    /* Infinite loop */
+    for(;;)
+    {
+
+     current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
+     if (current_minute != -1) { //touch!
+
+  	   touch_end_count = 1;  //flag to check when done with touch event
+
+  	   if (last_minute != current_minute) {
+  		   //update touch stuff!
+  		   last_minute = current_minute;
+  	   	   er_oled_print_2digit(current_minute);
+
+  	   	   uint16_t touchval = 0x4000 | current_minute;
+  	   	   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
+  	   }
+
+  	   //optional
+  	   osDelay(25);
+
+
+  	   //char str[3];
+  	   //sprintf(str, "%d", current_minute);
+
+
+     } else if (touch_end_count > 0){
+
+  	   touch_end_count += 1;//increment touching_end_count
+
+  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //if it hits this value, we're done
+
+  		   touch_end_count = 0;
+
+  		   //DO THINGS WITH CONFIRMED TOUCH == LAST_MINUTE
+  		   char out_text[10];
+  		   sprintf(out_text, "FINAL: %d", last_minute);
+
+  		   uint16_t touchval = 0x5000 | last_minute;
+  		   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
+
+  		   last_minute = -1;
+
+  	   }
+
+  	   osDelay(25);
+
+
+     }else { //no touch, wait for a touch
+
+       if (GlobalState.programMode == MODE_CANCEL){
+    	   //had a 'cancel' button event
+
+    	   er_oled_clear(oled_buf);
+   	   	   er_oled_string(0, 0, "  dismiss!", 12, 1, oled_buf);
+   	   	   er_oled_string(0, 28, "TIME NOW IS:", 12, 1, oled_buf);
+   	   	   er_oled_display(oled_buf);
+
+   	   	   osDelay(1000);
+
+   	   	   osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+   	   	   HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+   	   	   HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+   	   	   osMutexRelease(rtcMutexHandle);
+
+   	   	   uint8_t  hrs = RTC_Bcd2ToByte(cTime.Hours);
+   	   	   uint8_t mins = RTC_Bcd2ToByte(cTime.Minutes);
+   	   	   char time[5];
+   	   	   sprintf (time, "%02d%02d", hrs, mins);
+   	   	   er_oled_time(time);
+
+	       osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+	       GlobalState.lastSeenTime.time = cTime;
+	       GlobalState.lastSeenTime.date = cDate;
+	       osMutexRelease(lastSeenMutexHandle);
+
+	       bleSendData.sendType = TX_TIME_SEEN;
+	       bleSendData.data = 0x0000;
+	       osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+	       osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+	       GlobalState.programMode = MODE_RESTING;
+	       osMutexRelease(modeMutexHandle);
+
+	       osDelay(3000);
+	       er_oled_clear(oled_buf);
+	       er_oled_display(oled_buf);
+
+       } else if (GlobalState.programMode == MODE_ERROR) {
+    	   //ERROR condition: print condition and loop forever
+
+    	   er_oled_clear(oled_buf);
+    	   er_oled_string(0, 12, errorCondition, 12, 1, oled_buf);
+    	   er_oled_display(oled_buf);
+    	   for (;;){}
+       }
+
+       osDelay(250);
+
+     }
+    }
+
+
+
+  /* USER CODE END startUIControl */
 }
 
-/* USER CODE BEGIN Header_startLEDControl */
+/* USER CODE BEGIN Header_startESMMain */
 /**
-* @brief Function implementing the LEDControl thread.
+* @brief Function implementing the esmMain thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_startLEDControl */
-void startLEDControl(void *argument)
+/* USER CODE END Header_startESMMain */
+void startESMMain(void *argument)
 {
-  /* USER CODE BEGIN startLEDControl */
-
-  //To call LED behavior:
-    //osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-   	//LedState.currentMode = LED_CONFIRM_FLASH;
-   	//osMutexRelease(ledStateMutexHandle);
-
-  //For LED to work on new board (multiplexed with SPI_NSS), we need to pull PA4 high
-  //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+  /* USER CODE BEGIN startESMMain */
 
 
-  //LedState Init
-  osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-  LedState.currentMode = LED_SPIRAL;
-  LedState.nextMode = LED_OFF;
-  LedState.modeTimeout = pdMS_TO_TICKS(5000);
-  osMutexRelease(ledStateMutexHandle);
+  const BLETX_Queue_t bleSendData = {TX_SURVEY_INITIALIZED, 0x0000};
+  #define INTERACTION_TIMEOUT 20000
+  uint32_t notTimeout;
 
-  //Dotstar Init
-  DotStar_InitHandle dotstar;
-  dotstar.spiHandle = &hspi1;
-  dotstar.numLEDs = NUM_PIXELS;
-  dotstar.colorOrder = DOTSTAR_BGR;
-  Dotstar_Init(&dotstar);
-
-  ds_clear();  //turn off
-  ds_show();
-
-  const uint8_t STANDARD_BRIGHTNESS = 20; //20, 0-255
-  const uint8_t MAX_BRIGHTNESS = 0x33; //max brightness, 0x01-0xFF
-
-  ds_setBrightness(STANDARD_BRIGHTNESS);
-  osDelay(1000);
-
-  LedStatus_t currentMode;
-  LedStatus_t lastLoopMode = LED_OFF;
-
-  uint16_t counter = 0;
-  uint8_t stateVar1 = 0;
-  uint8_t stateVar2 = 0;
-
-  uint32_t color = 0x000000;
   /* Infinite loop */
   for(;;)
   {
     //check state, get mode, call timer if necessary
 
-    osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-	currentMode = LedState.currentMode;
-	if (LedState.modeTimeout){
-		xTaskNotifyGive(LEDTimerHandle);
-	}
-	osMutexRelease(ledStateMutexHandle);
+    //xTaskNotifyGive(startAlertHandle); to alert user with flash and vibration
+    osDelay(5000);
 
-	//reset count if we've switched modes
-	if (lastLoopMode != currentMode) { counter = 0; stateVar1 = 0; stateVar2 = 0;}
+    //at random interval, bounded by timebounds ONLY WHEN IN MODE_RESTING
+    //(MODE_CANCEL/MODE_TIME_ESTIMATE can happen when user is looking at time;
+    //we want to wait for these to complete and use the updated time for estimating
+    //intervals
 
-	switch(currentMode){
+    //if >timebound interval selection + lasttimeseen
+	//if between hours of timebound
+    //if mode is mode_resting
+    //
+    if (GlobalState.programMode == MODE_RESTING){
 
-		case LED_TIME:
+    	//1. set program mode to MODE_ESM_TIME_ESTIMATE
+    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    	GlobalState.programMode = MODE_ESM_TIME_ESTIMATE;
+    	osMutexRelease(modeMutexHandle);
 
-			break;
-		case LED_TOUCH_TRACK:
+    	//2. send TX_SURVEY_INITIALIZED
+    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-			break;
-		case LED_CONFIRM_FLASH:
+    	uint8_t no_interaction = 1;
+    	while(no_interaction){
 
-			//each color go from 00 to MAX_BRIGHTNESS to 00 over a second, 1000Hz=sec, ~512 steps, 2ms
-			if (lastLoopMode != currentMode) { ds_fill(0xFFFFFF, 0, 12);}
-		    ds_setBrightness(stateVar1);
-			ds_show();
+    		//3. alert:
+    		xTaskNotifyGive(alertHandle);
 
-		    //increment color intensity
-		    if (stateVar2) {stateVar1--;}
-		    else {stateVar1++;}
+    		//4. wait for notification from UI thread with timeout that indicates
+    		//start of user interaction
+    		notTimeout = ulTaskNotifyTake( pdTRUE, INTERACTION_TIMEOUT);
 
-		    //if we hit a limit switch color scaling up or down
-		    if (stateVar1 == MAX_BRIGHTNESS) {stateVar2 = 1;}
-		    if (stateVar1 == 0x00) {stateVar2 = 0;}
+    		if (notTimeout){ //not a timeout, interaction started
+    			no_interaction = 0;
 
-			osDelay(pdMS_TO_TICKS(2)); //2ms delay
+    			if (GlobalState.programMode == MODE_ESM_TIME_ESTIMATE){
+    			//if this is NOT true, we had a cancel event or snooze
+    			//and should just leave.  otherwise we'll continue with our
+    			//survey experience within this statement:
 
-			if (++counter == (MAX_BRIGHTNESS*4)) { //if we hit 1 cycle here (= MAX_BRIGHTNESS*2,could *4 to set to two full cycles), set state to off
-				ds_clear();
-				ds_show();
-				ds_setBrightness(STANDARD_BRIGHTNESS);
+    			//wait for notification from UI thread that indicates end of user interaction
+    			notTimeout = ulTaskNotifyTake( pdTRUE, INTERACTION_TIMEOUT);
 
-				osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-				LedState.currentMode = LED_OFF;
-				osMutexRelease(ledStateMutexHandle);
-			}
 
-			break;
+    			}
+    		}
+    	}
+    	//if timeout, check program_mode.  If program_mode was
+    	//set to mode other than MODE_ESM_TIME_ESTIMATE, exit.
+    	//else rebuzz.  otherwise, if valid entry, continue onward.
+    }
 
-		case LED_SPIRAL:
+    //osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
+	//osMutexRelease(ledStateMutexHandle);
 
-			//rotate fixed pattern around 12
-			//modulo 12
-			for (int i=0; i< NUM_PIXELS; i++){
+    //floats are 32-bits, so 4 bytes. 16 bytes for total
+   	//osMessageQueuePut(bleRXqueueHandle, &(pNotification->DataTransfered), 0, 0);
+    //const BLETX_Queue_t bleSendData = {TX_TEMP_HUMD, 0x0000};
+    //osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-				if (i==(counter+2)%12){ color = 0xFFFFFF; }
-				else if (i==(counter+1)%12){ color = 0xD0D0D0; }
-				else if (i==counter)       { color = 0xA0A0A0; }
-				else { color = 0x000000; }
-
-				ds_setPixelColor32B(i, color); // 'off' pixel at head
-			}
-
-			ds_show();
-			counter = (counter+1)%12;
-			osDelay(pdMS_TO_TICKS(50));
-
-			break;
-
-		default: //case LED_OTHER, LED_OFF, LED_NONE
-			if (lastLoopMode != currentMode) {
-				ds_clear();
-				ds_show();
-			}
-			osDelay(250);
-			break;
-	}
-
-	lastLoopMode = currentMode;
   }
-  /* USER CODE END startLEDControl */
+  /* USER CODE END startESMMain */
 }
 
 /* USER CODE BEGIN Header_startButtonPress */
@@ -1061,6 +1124,8 @@ void startButtonPress(void *argument)
   //Buttons are PULLED UP and drop to 0 when pressed
   uint8_t buttonState[] = {1, 1, 1};
   uint32_t callingPin = 0x00;
+
+  const BLETX_Queue_t bleSendData = {TX_LAST_SURVEY_INVALID, 0x0000};
 
   for(;;)
   {
@@ -1088,14 +1153,13 @@ void startButtonPress(void *argument)
 
 		  //do stuff if button pressed
 		  if (!first_read){
-		       	osDelay(100);
-		  } else { //do stuff if button is released
+			  osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
+			  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+			  GlobalState.programMode = MODE_CANCEL;
+			  osMutexRelease(modeMutexHandle);
 		  }
 
-		  //send BLE queue indicator; button 1 = 0x0
-		  uint16_t bleval = 0x0000 | ((!first_read) << 8);
-		  osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
 		}
 		if (callingPin == 0b10000 && first_read != buttonState[1]) { //button 2 trigger
 		    //set buttonState
@@ -1103,14 +1167,12 @@ void startButtonPress(void *argument)
 
 		    //do stuff if button pressed
 		    if (!first_read){
-		       	osDelay(100);
-		    } else { //do stuff if button is released
+		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-			}
-
-		    //send BLE queue indicator; button 2 = 0x1
-		    uint16_t bleval = 0x1000 | ((!first_read) << 8);
-		    osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+		    	GlobalState.programMode = MODE_CANCEL;
+		    	osMutexRelease(modeMutexHandle);
+		    }
 		}
 		if (callingPin == 0b100000 && first_read != buttonState[2]) { //button 3 trigger
 		    //set buttonState
@@ -1118,14 +1180,12 @@ void startButtonPress(void *argument)
 
 		    //do stuff if button pressed
 		    if (!first_read){
-		    	osDelay(100);
-		    }  else { //do stuff if button is released
+		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-			}
-
-		    //send BLE queue indicator; button 3 = 0x2
-		    uint16_t bleval = 0x2000 | ((!first_read) << 8);
-		    osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+		    	GlobalState.programMode = MODE_CANCEL;
+		        osMutexRelease(modeMutexHandle);
+		    }
 		}
 
 	}
@@ -1134,16 +1194,18 @@ void startButtonPress(void *argument)
   /* USER CODE END startButtonPress */
 }
 
-/* USER CODE BEGIN Header_startVibrateControl */
+/* USER CODE BEGIN Header_startAlert */
 /**
-* @brief Function implementing the vibrateControl thread.
+* @brief Function implementing the alert thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_startVibrateControl */
-void startVibrateControl(void *argument)
+/* USER CODE END Header_startAlert */
+void startAlert(void *argument)
 {
-  /* USER CODE BEGIN startVibrateControl */
+  /* USER CODE BEGIN startAlert */
+
+  //xTaskNotifyGive(alertHandle); to alert user with flash and vibration
 
   //HAL_GPIO_WritePin(VIBRATION_GPIO_Port, VIBRATION_Pin, GPIO_PIN_RESET);
 
@@ -1151,138 +1213,135 @@ void startVibrateControl(void *argument)
   int duty_cycle = 79; //0 is off, up to ~80
   htim1.Instance->CCR2 = duty_cycle;
 
-  uint32_t pulse_dur = 1000;
-  uint16_t bleval;
+  //Dotstar Init
+  DotStar_InitHandle dotstar;
+  dotstar.spiHandle = &hspi1;
+  dotstar.numLEDs = NUM_PIXELS;
+  dotstar.colorOrder = DOTSTAR_BGR;
+  Dotstar_Init(&dotstar);
+
+  ds_clear();  //turn off
+  ds_show();
+
+  const uint8_t MAX_BRIGHTNESS = 0x33; //max brightness, 0x01-0xFF
+
+  ds_setBrightness(0);
+  osDelay(1000);
+
+  uint16_t counter;
+  uint8_t LEDDirection, LEDBrightness;
 
   /* Infinite loop */
   for(;;)
   {
-	xTaskNotifyWait(0x00, 0x00, &pulse_dur, portMAX_DELAY);
+
+	counter = 0;
+	LEDDirection = 0;
+	LEDBrightness = 0;
+
+	ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
+
+	//start vibration
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
-	//notify BLE
-    bleval = 0x3100;
-	osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
+	//flash loop
+	ds_fill(0xFFFFFF, 0, 12);
 
-    osDelay(pulse_dur);
+	while (counter++ < MAX_BRIGHTNESS*2) {
 
+		ds_setBrightness(LEDBrightness);
+		ds_show();
+
+		//increment color intensity
+		if (LEDDirection) {LEDBrightness--;}
+		else {LEDBrightness++;}
+
+		//if we hit a limit switch color scaling up or down
+		if (LEDBrightness == MAX_BRIGHTNESS) {LEDDirection = 1;}
+		if (LEDBrightness == 0x00) {LEDDirection = 0;}
+
+		osDelay(pdMS_TO_TICKS(2)); //2ms delay
+	}
+
+	//turn off LEDs
+	ds_setBrightness(0);
+	ds_fill(0x000000, 0, 12);
+	ds_show();
+
+	osDelay(pdMS_TO_TICKS(100)); //100ms delay
+
+    //stop vibration
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 
-    bleval = 0x3000;
-   	osMessageQueuePut(bleTXqueueHandle, &bleval, 0, 0);
 
   }
-  /* USER CODE END startVibrateControl */
+  /* USER CODE END startAlert */
 }
 
-/* USER CODE BEGIN Header_startRTCTick */
+/* USER CODE BEGIN Header_startConditionsPoll */
 /**
-* @brief Function implementing the rtcSecondTick thread.
+* @brief Function implementing the conditionsPoll thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_startRTCTick */
-void startRTCTick(void *argument)
+/* USER CODE END Header_startConditionsPoll */
+void startConditionsPoll(void *argument)
 {
-  /* USER CODE BEGIN startRTCTick */
+	osDelay(500); //let screen start first
 
-	RTC_TimeTypeDef sTime = {0};
-    sTime.Hours      = 0x15;
-    sTime.Minutes    = 0x41;
-    sTime.Seconds    = 0x57;
-    sTime.SubSeconds = 0x0;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-   	sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+	//poll ambient temp, humidity, visible light, white light
+	//every 5sec
+  	if (veml_Setup(hi2c1, VEML_5S_POLLING) == HAL_ERROR){
+  		//error condition
+  		strncpy(errorCondition, "ERR:VEML7700", sizeof(errorCondition));
+  	    GlobalState.programMode = MODE_ERROR;
+  	}
 
-   	osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
-	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
-	    Error_Handler();
-	}
-	osMutexRelease(rtcMutexHandle);
+  	osDelay(10);
 
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
+  	if (si7021_set_config(&hi2c1, SI7021_HEATER_OFF, SI7021_RESOLUTION_RH12_TEMP14) == HAL_ERROR) {
+  		//error condition
+  		strncpy(errorCondition, "ERR:SI7021CF", sizeof(errorCondition));
+  	    GlobalState.programMode = MODE_ERROR;
+  	}
 
-    osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-    LedState.currentMode = LED_SPIRAL;
-    osMutexRelease(ledStateMutexHandle);
+  	osDelay(10);
 
-    osDelay(1000);
+  	if (si7021_set_heater_power(&hi2c1, SI7021_HEATER_POWER_3MA) == HAL_ERROR) {
+  		//error condition
+  		strncpy(errorCondition, "ERR:SI7021HT", sizeof(errorCondition));
+  	    GlobalState.programMode = MODE_ERROR;
+  	}
 
-    ScreenStatus_t newScreen = SCREEN_TIME;
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-    xTaskNotify(vibrateControlHandle, 100, eSetValueWithOverwrite);
+  	float lux;
+  	float whiteLux;
+  	float humidity;
+    float temperature;
 
-    osDelay(1000);
+    const BLETX_Queue_t bleSendData = {TX_TEMP_HUMD, 0x0000};
 
-    osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-    LedState.currentMode = LED_CONFIRM_FLASH;
-    osMutexRelease(ledStateMutexHandle);
+  	for (;;){
 
-    osDelay(1000);
+  		lux = veml_Get_Lux();
+    	whiteLux = veml_Get_White_Lux();
+    	temperature = si7021_measure_temperature(&hi2c1);
+    	humidity = si7021_measure_humidity(&hi2c1);
 
-    osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-    LedState.currentMode = LED_SPIRAL;
-    osMutexRelease(ledStateMutexHandle);
+    	osMutexAcquire(conditionMutexHandle, portMAX_DELAY);
+    	GlobalState.lastConditions.lux = lux;
+    	GlobalState.lastConditions.whiteLux = whiteLux;
+    	GlobalState.lastConditions.temp = temperature;
+    	GlobalState.lastConditions.humd = humidity;
+    	osMutexRelease(conditionMutexHandle);
 
-    osDelay(1000);
+		osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-    newScreen = SCREEN_TEXT;
-	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-	strncpy(ScreenState.screenText, "arbitrary", sizeof("arbitrary"));
-	osMutexRelease(screenTextMutexHandle);
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
+    	osDelay(9900);
+  	}
 
-    //xTaskNotify(vibrateControlHandle, 200, eSetValueWithOverwrite);
-
-    osDelay(1000);
-
-    /*
-    //set rtc
-    RTC_TimeTypeDef sTime = {0};
-    sTime.Hours      = 0x15;
-    sTime.Minutes    = 0x41;
-    sTime.Seconds    = 0x57;
-    sTime.SubSeconds = 0x0;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-   	sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-   	osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
-        Error_Handler();
-    }
-    osMutexRelease(rtcMutexHandle);
-	*/
-
-    newScreen = SCREEN_TIME;
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-    osDelay(1000);
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-    osDelay(1000);
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-    osDelay(1000);
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-    osDelay(1000);
-
-
-    osDelay(1000);
-
-    newScreen = SCREEN_IMAGE;
-   	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-   	ScreenState.screenImage = 1;
-   	osMutexRelease(screenTextMutexHandle);
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-
-    osDelay(3000);
-
-    newScreen = SCREEN_OFF;
-    xTaskNotify(screenUpdateHandle, (uint32_t)newScreen, eSetValueWithOverwrite);
-
-
-  }
-  /* USER CODE END startRTCTick */
+/* USER CODE END startConditionsPoll */
 }
+
 
 /* USER CODE BEGIN Header_startBLETX */
 /**
@@ -1294,13 +1353,28 @@ void startRTCTick(void *argument)
 void startBLETX(void *argument)
 {
   /* USER CODE BEGIN startBLETX */
-  uint16_t sendData;
+  BLETX_Queue_t sendData;
 
   /* Infinite loop */
   for(;;)
   {
     if (osMessageQueueGet(bleTXqueueHandle, &sendData, NULL, osWaitForever) == osOK){
-    	P2PS_Send_Data(sendData);
+
+    	//TX_TIME_SEEN - data in GlobalState.lastSeenTime
+
+    	//TX_TIME_EST - data in GlobalState.timeEstimateSample
+
+    	//TX_TEMP_HUMD - construct both TX_TEMP_HUMD/TX_LUX_WHITELUX
+    	//               with data in GlobalState.lastConditions
+
+    	//TX_LAST_SURVEY_INVALID -- just send that timestamped
+
+    	//TX_SURVEY_INITIALIZED -- just send that timestamped
+
+    	//TX_TIMESTAMP_UPDATE -- use data in sendData for error, to send
+    	//TX_SURVEY_RESULT -- use data in sendData, first byte is survey/second is answer
+
+    	P2PS_Send_Data(sendData.data);
     }
   }
   /* USER CODE END startBLETX */
@@ -1320,29 +1394,10 @@ void startBLERX(void *argument)
 
   P2PS_STM_Data_t rxData;
 
-  uint8_t continuing = 0;
-  char textbuffer[128];
-
   for(;;)
   {
 
 	if (osMessageQueueGet(bleRXqueueHandle, &rxData, NULL, osWaitForever) == osOK){
-
-		//--- PRINT AND DEBUG HEX RX FROM PHONE ---//
-		//CAREFUL : prints on CENTER LINE FIRST, then bottom line, *then wraps to top line*
-		//can only print 12 bytes at a time
-		/*
-		char str[128];
-		uint8_t index = 0;
-		for (int i=0; i<rxData.Length;i++){
-			index += sprintf(&str[index], "%02X:", rxData.pPayload[i]);
-		}
-		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-		strncpy(ScreenState.screenText, str, sizeof(str));
-		osMutexRelease(screenTextMutexHandle);
-		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-		*/
-		//--- END PRINT HEX PAYLOAD FIRST 12 BYTES
 
 		if (rxData.pPayload[0] == 0x00) { // timestamp update starts with 0x00
 			memcpy(&P2P_Server_App_Context.OTATimestamp, &(rxData.pPayload[1]), 8);
@@ -1377,7 +1432,10 @@ void startBLERX(void *argument)
     		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
     	    osMutexRelease(rtcMutexHandle);
 
-		} else if (rxData.pPayload[0] == 0x06) {//screen text update starts with 0x06
+		}
+
+
+/*		else if (rxData.pPayload[0] == 0x06) {//screen text update starts with 0x06
 
 			//works great if string sent is <=18 and has a '00' byte (19 + update byte, 20 byte MTU)
 			//'00' obviously connotes the end of the string.
@@ -1421,220 +1479,10 @@ void startBLERX(void *argument)
 	    	osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
 	    	LedState.currentMode = rxData.pPayload[1];
 	    	osMutexRelease(ledStateMutexHandle);
-	    }
+	    }*/
 	}
   }
   /* USER CODE END startBLERX */
-}
-
-/* USER CODE BEGIN Header_startLEDTimer */
-/**
-* @brief Function implementing the LEDTimer thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_startLEDTimer */
-void startLEDTimer(void *argument)
-{
-  /* USER CODE BEGIN startLEDTimer */
-
-  //this gets called if the timer value in the struct is
-  //set to something other than 0 (which should occur using
-  //the ledSateMutexHandle to make it atomic).  It will
-  //change the currentState to nextState after the timeout
-  //in ms IF no state updates have occurred during the waiting
-  //period.  Changing current or next state will cause the
-  //this timer to stop working.
-
-  //Updating the timeout value when another timeout is active
-  //has poorly defined behavior; namely it will wait for the
-  //active timeout to finish before it starts counting.
-
-  //This should really be used sparingly to simply call a
-  //temporary LED action that should then just fade to
-  //another, like a confirm flash followed by off/watch mode.
-
-  LedState_t waitState;
-
-  /* Infinite loop */
-  for(;;)
-  {
-	  //wait until notified
-	  ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
-
-	  //pull time of delay before updating LED state
-	  osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-	  waitState = LedState;
-	  LedState.modeTimeout = 0;
-	  osMutexRelease(ledStateMutexHandle);
-
-	  //delay
-	  osDelay(waitState.modeTimeout);
-
-	  //update LED state in LedState
-	  osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-	  //check that state values haven't changed since
-	  //started waiting before updating state
-	  if (waitState.currentMode == LedState.currentMode && waitState.nextMode == LedState.nextMode) {
-		  LedState.currentMode = LedState.nextMode;
-		  LedState.nextMode = LED_NONE;
-	  }
-	  osMutexRelease(ledStateMutexHandle);
-  }
-  /* USER CODE END startLEDTimer */
-}
-
-/* USER CODE BEGIN Header_startTouchRead */
-/**
-* @brief Function implementing the touchRead thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_startTouchRead */
-void startTouchRead(void *argument)
-{
-  /* USER CODE BEGIN startTouchRead */
-
-  int16_t current_minute = -1;
-  uint8_t touch_end_count = 0;
-  uint16_t last_minute = -1;
-  #define TOUCH_END_TIMEOUT 6
-
-  osDelay(3000); // give screen time to turn on.
-
-  //init peripheral (not turbo mode, poll every 250ms, if touch sample at 40Hz until no touch)
-  if (setup_iqs263() == HAL_ERROR) {
-
-	  osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-	  strncpy(ScreenState.screenText, "touch fail", sizeof("touch fail"));
-	  osMutexRelease(screenTextMutexHandle);
-	  xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-
-  }
-
-  /* Infinite loop */
-  for(;;)
-  {
-   current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
-   if (current_minute != -1) { //touch!
-
-	   touch_end_count = 1;
-
-	   if (last_minute != current_minute) {
-		   //update touch stuff!
-		   last_minute = current_minute;
-	   	   er_oled_print_2digit(current_minute);
-
-	   	   uint16_t touchval = 0x4000 | current_minute;
-	   	   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
-	   }
-
-	   //optional
-	   osDelay(25);
-
-	   /*
-	   char str[3];
-	   sprintf(str, "%d", current_minute);
-	   osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-	   strncpy(ScreenState.screenText, str, sizeof(str));
-	   osMutexRelease(screenTextMutexHandle);
-	   xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-	   */
-
-   } else if (touch_end_count > 0){
-
-	   touch_end_count += 1;//increment touching_end_count
-
-	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //if it hits this value, we're done
-
-		   touch_end_count = 0;
-
-		   //DO THINGS WITH CONFIRMED TOUCH == LAST_MINUTE
-		   char out_text[10];
-		   sprintf(out_text, "FINAL: %d", last_minute);
-		   osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-		   strncpy(ScreenState.screenText, out_text, sizeof(out_text));
-		   osMutexRelease(screenTextMutexHandle);
-		   xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-
-		   uint16_t touchval = 0x5000 | last_minute;
-		   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
-
-		   last_minute = -1;
-
-	   }
-
-	   osDelay(25);
-
-
-   }else { //no touch, wait for a touch
-    osDelay(250);
-   }
-  }
-  /* USER CODE END startTouchRead */
-}
-
-
-/* USER CODE BEGIN Header_startConditionsPoll */
-/**
-* @brief Function implementing the conditionsPoll thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_startConditionsPoll */
-void startConditionsPoll(void *argument)
-{
-	//poll ambient temp, humidity, visible light, white light
-	//every 5sec
-  	veml_Setup(hi2c1, VEML_5S_POLLING);
-
-  	if (si7021_set_config(&hi2c1, SI7021_HEATER_OFF, SI7021_RESOLUTION_RH12_TEMP14) == HAL_ERROR) {
-  		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-  		strncpy(ScreenState.screenText, "FAIL: Config Set", sizeof("FAIL: Config Set"));
-  		osMutexRelease(screenTextMutexHandle);
-  		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-  	  }
-
-  	  //set heater power
-  	  if (si7021_set_heater_power(&hi2c1, SI7021_HEATER_POWER_3MA) == HAL_ERROR) {
-  		osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-  		strncpy(ScreenState.screenText, "FAIL: Heater Set", sizeof("FAIL: Heater Set"));
-  		osMutexRelease(screenTextMutexHandle);
-  		xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-  	  }
-
-  	float lux;
-  	float whitelux;
-  	float humidity;
-    float temperature;
-
-  	char printstring[128];
-
-  	for (;;){
-  		lux = veml_Get_Lux();
-    	whitelux = veml_Get_White_Lux();
-    	temperature = si7021_measure_temperature(&hi2c1);
-    	humidity = si7021_measure_humidity(&hi2c1);
-
-
-    	sprintf(printstring, "  lux:%6dwhite:%6d", (uint8_t)lux, (uint8_t)whitelux);
-    	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-    	strncpy(ScreenState.screenText, printstring, sizeof(printstring));
-    	osMutexRelease(screenTextMutexHandle);
-    	xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-
-    	osDelay(2500);
-
-    	sprintf(printstring, " temp: %d    humd: %d", (uint8_t)temperature, (uint8_t)humidity);
-    	osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-        strncpy(ScreenState.screenText, printstring, sizeof(printstring));
-        osMutexRelease(screenTextMutexHandle);
-        xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
-
-    	osDelay(2500);
-  	}
-
-/* USER CODE END startConditionsPoll */
 }
 
 
@@ -1706,7 +1554,6 @@ static void Config_HSE(void)
 
   return;
 }  
-
 
 static void Reset_Device( void )
 {
@@ -1820,8 +1667,6 @@ void HAL_Delay(uint32_t Delay)
 
 /* USER CODE END 4 */
 
-
-
  /**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM17 interrupt took place, inside
@@ -1842,7 +1687,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
   /* USER CODE END Callback 1 */
 }
-
 
 /*
 //ISSUES WITH MALLOC AND FREE AND FREERTOS, need to use included

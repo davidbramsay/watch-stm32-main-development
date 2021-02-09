@@ -46,27 +46,186 @@ void Error_Handler(void);
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
 
+#define SURVEY_FOCUS    0x0 //focus level during last interval
+#define SURVEY_AROUSAL  0x1 //altertness level during last interval
+#define SURVEY_VALENCE  0x2 //valence level during last interval
+#define SURVEY_COGLOAD  0x3 //cognitive load during last interval
+#define SURVEY_TIMECUE  0x4 //event with known clock reference, notification about time, in last interval?
+#define SURVEY_CAFFEINE 0x5 //drink caffeine in last interval?
+#define SURVEY_EXERCISE 0x6 //exercise in last interval? heavy light no
+
+//settings for when to randomly ESM
+typedef struct {
+  uint8_t startHR_BCD; // hour in day to start allowing notifications, BCD format
+  uint8_t endHR_BCD;   // hour in day to stop allowing notifications, BCD format
+  uint8_t minInterval; //minimum number of mins to pass before new ESM notification
+  uint8_t maxInterval; //maximum number of mins to pass before new ESM notification
+} ESMTimeBounds_t;
+
+//wrapper for timestamp data
+typedef struct {
+  RTC_TimeTypeDef time;
+  RTC_DateTypeDef date;
+} TimeStruct_t;
+
+//wrapper for condition data
+typedef struct {
+	float lux;
+	float whiteLux;
+	float temp;
+	float humd;
+} ConditionSample_t;
+
+//state indicator for program
 typedef enum {
-	SCREEN_OFF,
-	SCREEN_TIME,
-	SCREEN_TOUCH_TRACK,
-	SCREEN_TEXT,
-	SCREEN_IMAGE
-} ScreenStatus_t;
+	MODE_RESTING, //nothing is going on
+	MODE_TIME_ESTIMATE, //user interaction driven event, wants to check time
+	MODE_ESM_TIME_ESTIMATE, //random interruption, ask user for time estimate and notify ESM thread at complete
+	MODE_ESM_SURVEY, //random interruption, ask user for survey response and notify ESM thread at complete
+	MODE_CANCEL, //button press that indicates we need to display current time
+	MODE_ERROR //something went wrong, display error
+} ProgramMode_t;
+
+//screen state information
+typedef struct {
+	char screenText[128]; //topline text for survey
+	uint8_t screenTextLength; //length of text
+	char *optionArray[7];  //array of char arrays to represent touch options, i.e. 'agree'/'disagree' or '1''2''3'
+	uint8_t optionArrayLength; //num of options
+} Survey_t;
+
+static const char* const opts_five[] = {"1","2","3","4","5"};
+static const char* const opts_agree[] = {"disagree", "agree"};
+
+
 
 typedef struct {
-	char screenText[128];
-	uint8_t screenImage;
-	uint8_t len;
-} ScreenState_t;
+	ESMTimeBounds_t timeBound; //protected by timeBoundMutex
+	TimeStruct_t lastSeenTime;  //protected by lastSeenMutex
+	TimeStruct_t timeEstimateSample; //protected by timeEstimateMutex
+	ConditionSample_t lastConditions; //protected by conditionMutex
+	ProgramMode_t programMode; //protected by modeMutex
+	Survey_t surveyState; //protected by surveyMutex
+} GlobalState_t;
 
-ScreenState_t ScreenState; //protected by screenTextMutex
-osMutexId_t screenTextMutexHandle;
+char errorCondition[13];
+
+GlobalState_t GlobalState;
+
+typedef enum {
+	TX_LUX_WHITELUX,        //0 x
+	TX_TEMP_HUMD,           //1 x
+	TX_SURVEY_INITIALIZED,  //2
+	TX_TIME_EST,            //3
+	TX_TIME_SEEN,           //4
+	TX_SURVEY_RESULT,       //5
+	TX_LAST_SURVEY_INVALID, //6
+	TX_TIMESTAMP_UPDATE     //7
+} SendDataType_t;
+
+//data pass to BLETX thread
+typedef struct {
+  SendDataType_t sendType;
+  uint16_t data;
+} BLETX_Queue_t;
+
+//add data to queue if we cant send over BLE,
+//dynamic allocation to grow until we cannot malloc anymore
+typedef struct {
+	uint16_t rtcstamp[4];
+	SendDataType_t datatype;
+	uint8_t *data;
+	struct UnsentQueue_t *next;
+} UnsentQueue_t;
+
+typedef UnsentQueue_t *UnsentQueueAddress_t;
+
+//DATA TO SEND:
+// timestamp is 4x16b, so 8 bytes.  This leaves us with 12 to work with per packet.
+// the next byte will be used for a SendDataType_t identifier.  This leaves us with 11 for data.
+
+// timestamped lux/whitelux.  these are each floats(32b), so 4 bytes each, so 8 bytes.
+// timestamped temp/humd.  these are each floats(32b), so 4 bytes each, so 8 bytes.
+// timestamped time_estimates, also as a timestamp. 8 bytes.
+// timestamped seen time.  Correct answer for time_estimate, or on cancel/restart.
+// timestamped survey_result.  1 byte for survey type, 1 byte for user input.
+// timestamped survey initialized. (no data)
+// timestamped last_data_invalid. (no data)
+// timestamped timestamp update (send previous time before update)
 
 RTC_HandleTypeDef hrtc; //protected by rtcMutexHandle
 osMutexId_t rtcMutexHandle;
 
 osMessageQueueId_t bleRXqueueHandle;
+
+
+
+//THREADS
+// esmMain -- launch ESM at random intervals, notify UI, handle
+//            timeouts for interaction and alerts.  main thread.
+//            on init timeout for time estimate, if mode has changed
+//            because of button press (sleep) skip rest, otherwise loop
+//            alert.  on timeout for other survey, simply skip rest.
+//            wait to launch if not RESTING.
+
+// uiControl -- touch and screen update handling.  Send ui events
+//              to BLETX, notify esmMain when ui event complete.
+//              loop that check for press and mode; faster loop
+//              when not resting.
+
+// alert -- led flash and vibrate when notified by esmMain.
+
+// conditionsPoll -- poll lux/whitelux/temp/humd every 10s, send
+//                   to BLETX
+
+// BLERX -- update RTC timestamp.  Set bounds for times of day
+//          that are okay to query, sleep for day.
+
+// BLETX -- if queue is empty send data over BLE to phone;
+//                            if send data fails, queue.
+//          otherwise add data to queue and try to send queue.
+//          if success, keep sending data until queue is empty
+//          and set queue pointer to NULL.
+//          accepts either (1) send conditions
+//                         (2) send timestamp (use last_timestamp).
+//                         (3) send survey result raw 4bits for answer, 4 bits for survey num
+
+// buttonPressed -- send invalidate data/sleep event to BLERX, end
+//                  survey, reset mode, restart timer for esm
+//                  poll.  any data between this and previous
+//                  survey start event is invalidated.
+
+//QUEUES and Global Data Structs
+
+// ProgramMode -- shared between esmMain and uiControl to
+// identify what should be on the screen during touch events
+// SURVEY STATE -- shared between esmMain and uiControl to
+// identify what should be on the screen (if not time estimate)
+// LAST TIME ESTIMATE -- last time that time is checked, start here
+// when estimating new time
+// NOTIFY TIMEBOUNDS -- time bounds for when to have notifications, intervals to estimate
+// BLE TX and RX QUEUE -- send data to and from BLE
+
+// SendQueue -- dynamic data of BLE data that hasn't sent
+
+//UI tools -- (1) time estimate based on previous time
+//            (2) survey based on Survey_t, with partial screen updates
+
+//we have a UI thread that initializes screen; need to integrate touch
+//we have ESMMain, which should manage ESM randomly within timebounds
+//we have alert thread working (buzz and flash)
+//we have buttonpress working and updating to BLETX
+//we have condition thread also updating to BLETX every 10s with new data in global
+//struct
+
+//need to rewrite BLETX to take in new data and send
+//need to rewrite to catch failures/check connection status and queue dynamically
+
+//need to rewrite UI thread to integrate touch, based off of mode and notification
+//need to write ESM to call/notify
+
+//need to rewrite RX to update time bounds, auto-update time and calc error
+
 
 
 #ifdef __cplusplus
