@@ -74,6 +74,15 @@ void er_oled_clear(uint8_t* buffer)
 	}
 }
 
+void er_oled_clear_bottom_third(uint8_t* buffer)
+{
+	int i;
+	for(i = 2 * WIDTH * HEIGHT / 24;i < WIDTH * HEIGHT / 8;i++)
+	{
+		buffer[i] = 0;
+	}
+}
+
 void er_oled_pixel(int x, int y, char color, uint8_t* buffer)
 {
     if(x > WIDTH || y > HEIGHT)return ;

@@ -792,11 +792,14 @@ static void GlobalState_Init(){
 
 	GlobalState.programMode = MODE_RESTING;
 
+	GlobalState.surveyState.surveyID = SURVEY_NONE;
 	char temp_string[10] = "  DRAMSAY.";
 	strncpy(GlobalState.surveyState.screenText, temp_string, strlen(temp_string));
 	GlobalState.surveyState.screenTextLength = strlen(temp_string);
 	memset(GlobalState.surveyState.optionArray, 0, sizeof(GlobalState.surveyState.optionArray));
 	GlobalState.surveyState.optionArrayLength = 0;
+
+	GlobalState.currentInterval = 0;
 }
 
 static inline void set_bit(long *x, int bitNum) {
@@ -902,14 +905,15 @@ void startUIControl(void *argument)
   int16_t current_minute = -1;
   int16_t last_minute = -1;
 
+  uint8_t hrs, mins;
+  char time[5];
+
   uint8_t touch_end_count = 0;
 
   RTC_TimeTypeDef cTime;
   RTC_DateTypeDef cDate;
 
   BLETX_Queue_t bleSendData;
-
-  #define TOUCH_END_TIMEOUT 6
 
   //init peripheral (not turbo mode, poll every 250ms, if touch sample at 40Hz until no touch)
   if (setup_iqs263() == HAL_ERROR) {
@@ -921,42 +925,77 @@ void startUIControl(void *argument)
     for(;;)
     {
 
-     current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
+	 current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
      if (current_minute != -1) { //touch!
 
-  	   touch_end_count = 1;  //flag to check when done with touch event
+       if (!touch_end_count){ //START TOUCH EVENT!
 
-  	   if (last_minute != current_minute) {
+    	   touch_end_count = 1;
+
+    	   er_oled_clear(oled_buf);
+
+    	   switch (GlobalState.programMode) {
+    	   	   case MODE_ESM_TIME_ESTIMATE:
+    	   	       xTaskNotifyGive(esmMainHandle);
+           		   er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+           		   break;
+    	   	   case MODE_ESM_SURVEY:
+    	   	       er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
+    	   	       break;
+    	   	   case MODE_RESTING:
+    			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			   GlobalState.programMode = MODE_TIME_ESTIMATE;
+    			   osMutexRelease(modeMutexHandle);
+    			   //fall through to next case
+    	   	   case MODE_TIME_ESTIMATE:
+    	   		   er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+          		   break;
+    	   }
+       }
+
+
+  	   if (last_minute != current_minute) { //UPDATE TOUCH VALUE!
   		   //update touch stuff!
   		   last_minute = current_minute;
-  	   	   er_oled_print_2digit(current_minute);
+  		   er_oled_clear_bottom_third(oled_buf);
+  	   	   if (last_minute > 30){
+  	   		  er_oled_string(0, 28, "   low", 12, 1, oled_buf);
+  	   	   } else {
+  	   		  er_oled_string(0, 28, "   high", 12, 1, oled_buf);
+  	   	   }
+  	   	   er_oled_display(oled_buf);
 
-  	   	   uint16_t touchval = 0x4000 | current_minute;
-  	   	   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
   	   }
+
 
   	   //optional
   	   osDelay(25);
-
-
-  	   //char str[3];
-  	   //sprintf(str, "%d", current_minute);
 
 
      } else if (touch_end_count > 0){
 
   	   touch_end_count += 1;//increment touching_end_count
 
-  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //if it hits this value, we're done
+  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //FINISHED/CONFIRMED TOUCH VALUE!
 
   		   touch_end_count = 0;
-
+  		   if (GlobalState.programMode == MODE_ESM_TIME_ESTIMATE ||
+  			   GlobalState.programMode == MODE_ESM_SURVEY){
+  			   	   xTaskNotifyGive(esmMainHandle);
+  		   }
   		   //DO THINGS WITH CONFIRMED TOUCH == LAST_MINUTE
   		   char out_text[10];
   		   sprintf(out_text, "FINAL: %d", last_minute);
-
-  		   uint16_t touchval = 0x5000 | last_minute;
-  		   osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
+  		   er_oled_clear(oled_buf);
+  		   er_oled_string(0, 28, out_text, 12, 1, oled_buf);
+  		   er_oled_display(oled_buf);
+  		   if (GlobalState.programMode == MODE_TIME_ESTIMATE){
+  			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+  			   GlobalState.programMode = MODE_RESTING;
+  			   osMutexRelease(modeMutexHandle);
+  		   }
+  		   //uint16_t touchval = 0x5000 | last_minute;
+  		   //osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
 
   		   last_minute = -1;
 
@@ -967,12 +1006,13 @@ void startUIControl(void *argument)
 
      }else { //no touch, wait for a touch
 
-       if (GlobalState.programMode == MODE_CANCEL){
+       switch (GlobalState.programMode){
+        case MODE_CANCEL:
     	   //had a 'cancel' button event
 
     	   er_oled_clear(oled_buf);
    	   	   er_oled_string(0, 0, "  dismiss!", 12, 1, oled_buf);
-   	   	   er_oled_string(0, 28, "TIME NOW IS:", 12, 1, oled_buf);
+   	   	   er_oled_string(0, 20, "TIME NOW IS:", 12, 1, oled_buf);
    	   	   er_oled_display(oled_buf);
 
    	   	   osDelay(1000);
@@ -982,9 +1022,8 @@ void startUIControl(void *argument)
    	   	   HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
    	   	   osMutexRelease(rtcMutexHandle);
 
-   	   	   uint8_t  hrs = RTC_Bcd2ToByte(cTime.Hours);
-   	   	   uint8_t mins = RTC_Bcd2ToByte(cTime.Minutes);
-   	   	   char time[5];
+   	   	   hrs = RTC_Bcd2ToByte(cTime.Hours);
+   	   	   mins = RTC_Bcd2ToByte(cTime.Minutes);
    	   	   sprintf (time, "%02d%02d", hrs, mins);
    	   	   er_oled_time(time);
 
@@ -1001,20 +1040,98 @@ void startUIControl(void *argument)
 	       GlobalState.programMode = MODE_RESTING;
 	       osMutexRelease(modeMutexHandle);
 
+	       //TODO: PICK NEW INTERVAL
+	       /////////////////////////
+
 	       osDelay(3000);
 	       er_oled_clear(oled_buf);
 	       er_oled_display(oled_buf);
+	       break;
 
-       } else if (GlobalState.programMode == MODE_ERROR) {
+        case MODE_SHOW_TIME:
+		   //show time, no cancel, but does the same thing
+
+		   er_oled_clear(oled_buf);
+		   er_oled_string(0, 0, " completed", 12, 1, oled_buf);
+		   er_oled_string(0, 20, "TIME NOW IS:", 12, 1, oled_buf);
+		   er_oled_display(oled_buf);
+
+		   osDelay(1000);
+
+		   osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+		   HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+		   HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+		   osMutexRelease(rtcMutexHandle);
+
+		   hrs = RTC_Bcd2ToByte(cTime.Hours);
+		   mins = RTC_Bcd2ToByte(cTime.Minutes);
+		   sprintf (time, "%02d%02d", hrs, mins);
+		   er_oled_time(time);
+
+		   osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+		   GlobalState.lastSeenTime.time = cTime;
+		   GlobalState.lastSeenTime.date = cDate;
+		   osMutexRelease(lastSeenMutexHandle);
+
+		   bleSendData.sendType = TX_TIME_SEEN;
+		   bleSendData.data = 0x0000;
+		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+		   GlobalState.programMode = MODE_RESTING;
+		   osMutexRelease(modeMutexHandle);
+
+		   //TODO: PICK NEW INTERVAL
+		   /////////////////////////
+
+		   osDelay(3000);
+		   er_oled_clear(oled_buf);
+		   er_oled_display(oled_buf);
+		   break;
+
+       case MODE_ERROR:
     	   //ERROR condition: print condition and loop forever
 
     	   er_oled_clear(oled_buf);
     	   er_oled_string(0, 12, errorCondition, 12, 1, oled_buf);
     	   er_oled_display(oled_buf);
     	   for (;;){}
-       }
+    	   break;
 
-       osDelay(250);
+       case MODE_CLEAR:
+    	   //Timeout, notify and wait until clear
+    	   //show time and restart
+
+		   er_oled_clear(oled_buf);
+		   er_oled_string(0, 10, "  TIMEOUT!", 12, 1, oled_buf);
+		   er_oled_string(0, 28, " hit button", 12, 1, oled_buf);
+		   er_oled_display(oled_buf);
+
+		   osDelay(500);
+    	   break;
+
+       case MODE_ESM_TIME_ESTIMATE:
+    	  er_oled_clear(oled_buf);
+    	  er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+    	  er_oled_display(oled_buf);
+    	  osDelay(100);
+    	  break;
+
+       case MODE_ESM_SURVEY:
+    	  er_oled_clear(oled_buf);
+    	  er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
+    	  er_oled_display(oled_buf);
+    	  osDelay(100);
+    	  break;
+
+       case MODE_RESTING:
+		   osDelay(250);
+		   break;
+
+       default:
+    	   osDelay(20);
+    	   break;
+       }
 
      }
     }
@@ -1036,9 +1153,10 @@ void startESMMain(void *argument)
   /* USER CODE BEGIN startESMMain */
 
 
-  const BLETX_Queue_t bleSendData = {TX_SURVEY_INITIALIZED, 0x0000};
-  #define INTERACTION_TIMEOUT 20000
-  uint32_t notTimeout;
+  const BLETX_Queue_t bleSendInit = {TX_SURVEY_INITIALIZED, 0x0000};
+  const BLETX_Queue_t bleSendInvalid = {TX_LAST_SURVEY_INVALID, 0x0000};
+
+  uint32_t notification;
 
   /* Infinite loop */
   for(;;)
@@ -1046,7 +1164,7 @@ void startESMMain(void *argument)
     //check state, get mode, call timer if necessary
 
     //xTaskNotifyGive(startAlertHandle); to alert user with flash and vibration
-    osDelay(5000);
+    osDelay(10000);
 
     //at random interval, bounded by timebounds ONLY WHEN IN MODE_RESTING
     //(MODE_CANCEL/MODE_TIME_ESTIMATE can happen when user is looking at time;
@@ -1059,43 +1177,144 @@ void startESMMain(void *argument)
     //
     if (GlobalState.programMode == MODE_RESTING){
 
-    	//1. set program mode to MODE_ESM_TIME_ESTIMATE
+    	//send TX_SURVEY_INITIALIZED
+    	osMessageQueuePut(bleTXqueueHandle, &bleSendInit, 0, 0);
+
+    	//set program mode to MODE_ESM_TIME_ESTIMATE
     	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
     	GlobalState.programMode = MODE_ESM_TIME_ESTIMATE;
     	osMutexRelease(modeMutexHandle);
 
-    	//2. send TX_SURVEY_INITIALIZED
-    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+    	//clear UI notification flags
+    	xTaskNotifyStateClear(NULL);
 
-    	uint8_t no_interaction = 1;
-    	while(no_interaction){
+    	uint8_t continue_flag = 1;
 
-    		//3. alert:
+    	//(1) Alert Loop and ESM_TIME_ESTIMATE
+    	uint8_t keep_alerting = 1;
+    	while(keep_alerting){
+
+    		//alert
     		xTaskNotifyGive(alertHandle);
+    		//wait for notification from UI thread that indicates start of user interaction
+    		notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(ALERT_TIMEOUT));
+       	    if (notification){ //not a timeout, interaction started
+        		keep_alerting = 0;
+     		}
+    	    if (GlobalState.programMode != MODE_ESM_TIME_ESTIMATE){
+    	    	//button press has changed mode and canceled interaction. want to exit alert loop.
+    	    	keep_alerting = 0;
+    	    	continue_flag = 0;
+    	    }
+        }
 
-    		//4. wait for notification from UI thread with timeout that indicates
-    		//start of user interaction
-    		notTimeout = ulTaskNotifyTake( pdTRUE, INTERACTION_TIMEOUT);
+    	//SECOND SCREEN FOR ESM
+    	if (continue_flag){
+    		//(2) Wait for notification from UI thread that indicates confirmed input
+    		notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
 
-    		if (notTimeout){ //not a timeout, interaction started
-    			no_interaction = 0;
-
-    			if (GlobalState.programMode == MODE_ESM_TIME_ESTIMATE){
-    			//if this is NOT true, we had a cancel event or snooze
-    			//and should just leave.  otherwise we'll continue with our
-    			//survey experience within this statement:
-
-    			//wait for notification from UI thread that indicates end of user interaction
-    			notTimeout = ulTaskNotifyTake( pdTRUE, INTERACTION_TIMEOUT);
-
-
-    			}
+    		if (GlobalState.programMode != MODE_ESM_TIME_ESTIMATE){
+    			//if our mode has changed, we had a dismiss/snooze event
+    			continue_flag = 0;
     		}
     	}
-    	//if timeout, check program_mode.  If program_mode was
-    	//set to mode other than MODE_ESM_TIME_ESTIMATE, exit.
-    	//else rebuzz.  otherwise, if valid entry, continue onward.
+
+    	if (continue_flag){
+    		if (notification){//not timed out, had a confirmed event
+    			//set up next interaction
+    			//set up survey
+    			osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+    			strncpy(GlobalState.surveyState.screenText, "  FOCUS?", strlen("  FOCUS?") + 1);
+    			GlobalState.surveyState.screenTextLength = strlen("  FOCUS?");
+    			GlobalState.surveyState.surveyID = SURVEY_FOCUS;
+    			//GlobalState.surveyState.optionArray = opts_five;
+    			memcpy(GlobalState.surveyState.optionArray, opts_five, sizeof(opts_five));
+    			GlobalState.surveyState.optionArrayLength = 5;
+    			osMutexRelease(surveyMutexHandle);
+
+    			//programMode
+    			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			GlobalState.programMode = MODE_ESM_SURVEY;
+    			osMutexRelease(modeMutexHandle);
+
+    		} else {//timed out due to inactivity
+    			continue_flag = 0;
+
+    			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			GlobalState.programMode = MODE_CLEAR;
+    			osMutexRelease(modeMutexHandle);
+    		}
+    	}
+
+    	//THIRD SCREEN FOR ESM
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_ESM_SURVEY){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//set up next interaction
+				//set up survey
+				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+				strncpy(GlobalState.surveyState.screenText, "  TIME CUE", strlen("  TIME CUE") + 1);
+				GlobalState.surveyState.screenTextLength = strlen("  TIME CUE");
+				GlobalState.surveyState.surveyID = SURVEY_TIMECUE;
+				//&(GlobalState.surveyState.optionArray) = &opts_agree;
+				memcpy(GlobalState.surveyState.optionArray, opts_agree, sizeof(opts_agree));
+				GlobalState.surveyState.optionArrayLength = 2;
+				osMutexRelease(surveyMutexHandle);
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
+
+
+		//FINISH ESM; SHOW TIME
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_ESM_SURVEY){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//completed survey with no problem!
+
+				//back to rest, show time
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_SHOW_TIME;
+				osMutexRelease(modeMutexHandle);;
+
+				//pick a new interval
+				//TODO: implement me!!!!!!!!!!!!!!!!!!!!!
+
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
+
     }
+
 
     //osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
 	//osMutexRelease(ledStateMutexHandle);
@@ -1158,6 +1377,9 @@ void startButtonPress(void *argument)
 			  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 			  GlobalState.programMode = MODE_CANCEL;
 			  osMutexRelease(modeMutexHandle);
+
+			  //TODO: pick new interval
+			  /////////////////////////
 		  }
 
 		}
@@ -1172,6 +1394,9 @@ void startButtonPress(void *argument)
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
 		    	osMutexRelease(modeMutexHandle);
+
+		    	//TODO: pick new interval
+				/////////////////////////
 		    }
 		}
 		if (callingPin == 0b100000 && first_read != buttonState[2]) { //button 3 trigger
@@ -1185,6 +1410,9 @@ void startButtonPress(void *argument)
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
 		        osMutexRelease(modeMutexHandle);
+
+		        //TODO: pick new interval
+		        /////////////////////////
 		    }
 		}
 

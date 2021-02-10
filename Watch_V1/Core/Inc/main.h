@@ -46,13 +46,14 @@ void Error_Handler(void);
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
 
-#define SURVEY_FOCUS    0x0 //focus level during last interval
-#define SURVEY_AROUSAL  0x1 //altertness level during last interval
-#define SURVEY_VALENCE  0x2 //valence level during last interval
-#define SURVEY_COGLOAD  0x3 //cognitive load during last interval
-#define SURVEY_TIMECUE  0x4 //event with known clock reference, notification about time, in last interval?
-#define SURVEY_CAFFEINE 0x5 //drink caffeine in last interval?
-#define SURVEY_EXERCISE 0x6 //exercise in last interval? heavy light no
+#define SURVEY_NONE     0x0
+#define SURVEY_FOCUS    0x1 //focus level during last interval
+#define SURVEY_AROUSAL  0x2 //altertness level during last interval
+#define SURVEY_VALENCE  0x3 //valence level during last interval
+#define SURVEY_COGLOAD  0x4 //cognitive load during last interval
+#define SURVEY_TIMECUE  0x5 //event with known clock reference, notification about time, in last interval?
+#define SURVEY_CAFFEINE 0x6 //drink caffeine in last interval?
+#define SURVEY_EXERCISE 0x7 //exercise in last interval? heavy light no
 
 //settings for when to randomly ESM
 typedef struct {
@@ -83,19 +84,22 @@ typedef enum {
 	MODE_ESM_TIME_ESTIMATE, //random interruption, ask user for time estimate and notify ESM thread at complete
 	MODE_ESM_SURVEY, //random interruption, ask user for survey response and notify ESM thread at complete
 	MODE_CANCEL, //button press that indicates we need to display current time
-	MODE_ERROR //something went wrong, display error
+	MODE_SHOW_TIME, //show time (like mode cancel) but without 'dismissed' warning
+	MODE_ERROR, //something went wrong, display error
+	MODE_CLEAR  //timeout, clear screen and go back to rest
 } ProgramMode_t;
 
 //screen state information
 typedef struct {
+	uint8_t surveyID; //survey ID using #defines above
 	char screenText[128]; //topline text for survey
 	uint8_t screenTextLength; //length of text
 	char *optionArray[7];  //array of char arrays to represent touch options, i.e. 'agree'/'disagree' or '1''2''3'
 	uint8_t optionArrayLength; //num of options
 } Survey_t;
 
-static const char* const opts_five[] = {"1","2","3","4","5"};
-static const char* const opts_agree[] = {"disagree", "agree"};
+static const char* const opts_five[][1] = {"1", "2", "3", "4", "5"};
+static const char* const opts_agree[][8] = {"disagree", "agree"};
 
 
 
@@ -106,6 +110,7 @@ typedef struct {
 	ConditionSample_t lastConditions; //protected by conditionMutex
 	ProgramMode_t programMode; //protected by modeMutex
 	Survey_t surveyState; //protected by surveyMutex
+	uint8_t currentInterval; //current interval to wait for
 } GlobalState_t;
 
 char errorCondition[13];
@@ -139,6 +144,12 @@ typedef struct {
 } UnsentQueue_t;
 
 typedef UnsentQueue_t *UnsentQueueAddress_t;
+
+#define TOUCH_END_TIMEOUT 6 //loops of 25ms before timeout
+#define ALERT_TIMEOUT 6000 //timeout in in MS before rebuzzing ESM if ignored
+#define INTERACTION_TIMEOUT 4000 //ms timeout in MS for each question before assume abandoned
+//make alert timeout variable so it doesn't help with time estimation
+
 
 //DATA TO SEND:
 // timestamp is 4x16b, so 8 bytes.  This leaves us with 12 to work with per packet.

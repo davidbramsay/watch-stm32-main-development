@@ -32,6 +32,7 @@ extern I2C_HandleTypeDef hi2c1;
 void er_oled_begin();
 void er_oled_display(uint8_t* buffer);
 void er_oled_clear(uint8_t* buffer);
+void er_oled_clear_bottom_third(uint8_t* buffer);
 void er_oled_pixel(int x,int y,char color, uint8_t* buffer);
 void er_oled_bitmap(uint8_t x,uint8_t y, const uint8_t *pBmp, uint8_t chWidth, uint8_t chHeight, uint8_t* buffer);
 void er_oled_char(uint8_t x, uint8_t y, char acsii, char size, char mode, uint8_t* buffer);
