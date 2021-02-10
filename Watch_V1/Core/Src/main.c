@@ -794,7 +794,7 @@ static void GlobalState_Init(){
 
 	GlobalState.surveyState.surveyID = SURVEY_NONE;
 	char temp_string[10] = "  DRAMSAY.";
-	strncpy(GlobalState.surveyState.screenText, temp_string, strlen(temp_string));
+	strncpy(GlobalState.surveyState.screenText, temp_string, strlen(temp_string)+1);
 	GlobalState.surveyState.screenTextLength = strlen(temp_string);
 	memset(GlobalState.surveyState.optionArray, 0, sizeof(GlobalState.surveyState.optionArray));
 	GlobalState.surveyState.optionArrayLength = 0;
@@ -951,19 +951,72 @@ void startUIControl(void *argument)
     	   		   er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
           		   break;
     	   }
+
+           //if we're guessing the time, on start of touch we need to grab
+           //the hour of the last seen time as a starting point.
+           if (GlobalState.programMode == MODE_TIME_ESTIMATE ||
+               GlobalState.programMode == MODE_ESM_TIME_ESTIMATE){
+
+                osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+                cTime = GlobalState.lastSeenTime.time;
+                osMutexRelease(lastSeenMutexHandle);
+
+                hrs = RTC_Bcd2ToByte(cTime.Hours);
+                mins = 0x00;
+           }
        }
 
 
   	   if (last_minute != current_minute) { //UPDATE TOUCH VALUE!
   		   //update touch stuff!
+           //
+           //map 10-50 to options for ESM_SURVEY
+           //
+           //for time guessing:
+           //
+           //if we have current_min 10>cm>=0 and last>50 add hr
+           //if we have current_min <=59 and 10>last>=0 subtract hr
+
+           switch (GlobalState.programMode){
+                case MODE_ESM_SURVEY:
+                    //clear bottom
+                    er_oled_clear_bottom_third(oled_buf);
+
+                    //divide 10-50 min into option steps roughly
+                    uint8_t step = 50 / (GlobalState.surveyState.optionArrayLength+1);
+                    for (int i=0; i<GlobalState.surveyState.optionArrayLength; i++){
+                        //map minute to option
+                        if(current_minute > (11 + i*step) &&
+                           current_minute < (11 + (i+1)*step)){
+                            er_oled_string(0, 28, GlobalState.surveyState.optionArray[GlobalState.surveyState.optionArrayLength-1-i], 12, 1, oled_buf);
+                        }
+                    }
+                    er_oled_display(oled_buf);
+
+                    break;
+                case MODE_TIME_ESTIMATE:
+                case MODE_ESM_TIME_ESTIMATE:
+
+                    //hours wrap
+                    if (current_minute < 15 &&
+                        current_minute >= 0 &&
+                        last_minute > 45){
+                        hrs = (hrs+1)%24;
+
+                    } else if (current_minute > 45 &&
+                               last_minute < 15){
+                        if (hrs==0) {hrs = 23};
+                        else {hrs -= 1;}
+                    }
+
+                    //display time on bottom two thirds
+                    sprintf (time, "%02d%02d", hrs, current_minute);
+                    er_oled_time_twothird(time, oled_buf);
+
+                    break;
+           }
+
   		   last_minute = current_minute;
-  		   er_oled_clear_bottom_third(oled_buf);
-  	   	   if (last_minute > 30){
-  	   		  er_oled_string(0, 28, "   low", 12, 1, oled_buf);
-  	   	   } else {
-  	   		  er_oled_string(0, 28, "   high", 12, 1, oled_buf);
-  	   	   }
-  	   	   er_oled_display(oled_buf);
 
   	   }
 
@@ -1154,7 +1207,6 @@ void startESMMain(void *argument)
 
 
   const BLETX_Queue_t bleSendInit = {TX_SURVEY_INITIALIZED, 0x0000};
-  const BLETX_Queue_t bleSendInvalid = {TX_LAST_SURVEY_INVALID, 0x0000};
 
   uint32_t notification;
 
