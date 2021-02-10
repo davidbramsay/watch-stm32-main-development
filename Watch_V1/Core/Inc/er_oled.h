@@ -33,7 +33,7 @@ void er_oled_begin();
 void er_oled_display(uint8_t* buffer);
 void er_oled_clear(uint8_t* buffer);
 void er_oled_clear_bottom_third(uint8_t* buffer);
-void er_oled_clear_bottom_twothird(uint8_t* buffer);
+void er_oled_clear_bottom_half(uint8_t* buffer);
 void er_oled_pixel(int x,int y,char color, uint8_t* buffer);
 void er_oled_bitmap(uint8_t x,uint8_t y, const uint8_t *pBmp, uint8_t chWidth, uint8_t chHeight, uint8_t* buffer);
 void er_oled_char(uint8_t x, uint8_t y, char acsii, char size, char mode, uint8_t* buffer);
@@ -42,7 +42,7 @@ void er_oled_char3216(uint8_t x, uint8_t y, uint8_t chChar, uint8_t* buffer);
 void er_oled_string(uint8_t x, uint8_t y, const char *pString, uint8_t Size, uint8_t Mode, uint8_t* buffer);
 void I2C_Write_Byte(uint8_t value, uint8_t Cmd);
 void er_oled_time(const char *pString);
-void er_oled_time_twothird(const char *pString, uint8_t oled_buf);
+void er_oled_time_twothird(const char *pString, uint8_t* buffer);
 void er_oled_print_2digit(int value);
 void er_oled_print_3digit(int value);
 

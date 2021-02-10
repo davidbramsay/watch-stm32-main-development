@@ -77,16 +77,16 @@ void er_oled_clear(uint8_t* buffer)
 void er_oled_clear_bottom_third(uint8_t* buffer)
 {
 	int i;
-	for(i = 2 * WIDTH * HEIGHT / 24;i < WIDTH * HEIGHT / 8;i++)
+	for(i = 2 * WIDTH * HEIGHT / 24 + 1;i < WIDTH * HEIGHT / 8;i++)
 	{
 		buffer[i] = 0;
 	}
 }
 
-void er_oled_clear_bottom_twothird(uint8_t* buffer)
+void er_oled_clear_bottom_half(uint8_t* buffer)
 {
 	int i;
-	for(i = WIDTH * HEIGHT / 24;i < WIDTH * HEIGHT / 8;i++)
+	for(i = WIDTH * HEIGHT / 16 + 1;i < WIDTH * HEIGHT / 8;i++)
 	{
 		buffer[i] = 0;
 	}
@@ -254,24 +254,24 @@ void er_oled_time(const char *pString)
 	er_oled_display(oled_buf);
 }
 
-void er_oled_time_twothird(const char *pString, uint8_t oled_buf)
+void er_oled_time_twothird(const char *pString, uint8_t* buffer)
 {
 
-	er_oled_clear_bottom_twothird(oled_buf);
+	er_oled_clear_bottom_half(buffer);
 
-    er_oled_char( 0, 16, *pString++,  24, 1, oled_buf);
-    er_oled_char(16, 16, *pString++ , 24, 1, oled_buf);
-    er_oled_char(40, 16, *pString++ , 24, 1, oled_buf);
-    er_oled_char(56, 16, *pString   , 24, 1, oled_buf);
+    er_oled_char(16, 20, *pString++,  16, 1, buffer);
+    er_oled_char(26, 20, *pString++ , 16, 1, buffer);
+    er_oled_char(40, 20, *pString++ , 16, 1, buffer);
+    er_oled_char(50, 20, *pString   , 16, 1, buffer);
 
-    er_oled_pixel(36, 23, 1, oled_buf);
-	er_oled_pixel(36, 24, 1, oled_buf);
-	er_oled_pixel(36, 25, 1, oled_buf);
-	er_oled_pixel(36, 31, 1, oled_buf);
-	er_oled_pixel(36, 32, 1, oled_buf);
-	er_oled_pixel(36, 33, 1, oled_buf);
+    //er_oled_pixel(36, 23, 1, buffer);
+	er_oled_pixel(36, 24, 1, buffer);
+	er_oled_pixel(36, 25, 1, buffer);
+	er_oled_pixel(36, 31, 1, buffer);
+	er_oled_pixel(36, 30, 1, buffer);
+	//er_oled_pixel(36, 33, 1, buffer);
 
-	er_oled_display(oled_buf);
+	er_oled_display(buffer);
 }
 
 void er_oled_print_2digit(int value){

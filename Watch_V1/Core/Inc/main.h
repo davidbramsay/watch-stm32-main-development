@@ -98,19 +98,20 @@ typedef struct {
 	uint8_t optionArrayLength; //num of options
 } Survey_t;
 
-static const char* const opts_five[][1] = {"1", "2", "3", "4", "5"};
-static const char* const opts_agree[][8] = {"disagree", "agree"};
+static const char* const opts_five[][8] = {"      1", "      2", "      3", "      4", "      5"};
+static const char* const opts_agree[][11] = {"  disagree", "    agree"};
 
 
 
 typedef struct {
 	ESMTimeBounds_t timeBound; //protected by timeBoundMutex
 	TimeStruct_t lastSeenTime;  //protected by lastSeenMutex
-	TimeStruct_t timeEstimateSample; //protected by timeEstimateMutex
+	//TimeStruct_t timeEstimateSample; //protected by timeEstimateMutex
 	ConditionSample_t lastConditions; //protected by conditionMutex
 	ProgramMode_t programMode; //protected by modeMutex
 	Survey_t surveyState; //protected by surveyMutex
 	uint8_t currentInterval; //current interval to wait for
+	uint8_t paused; //can stop all ESM from phone; turned off by default
 } GlobalState_t;
 
 char errorCondition[13];
@@ -145,7 +146,7 @@ typedef struct {
 
 typedef UnsentQueue_t *UnsentQueueAddress_t;
 
-#define TOUCH_END_TIMEOUT 6 //loops of 25ms before timeout
+#define TOUCH_END_TIMEOUT 40 //loops of 25ms before timeout
 #define ALERT_TIMEOUT 6000 //timeout in in MS before rebuzzing ESM if ignored
 #define INTERACTION_TIMEOUT 4000 //ms timeout in MS for each question before assume abandoned
 //make alert timeout variable so it doesn't help with time estimation

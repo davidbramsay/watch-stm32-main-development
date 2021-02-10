@@ -197,11 +197,11 @@ osMutexId_t lastSeenMutexHandle;
 const osMutexAttr_t lastSeenMutex_attributes = {
   .name = "lastSeenMutex"
 };
-/* Definitions for timeEstimateMutex */
-osMutexId_t timeEstimateMutexHandle;
-const osMutexAttr_t timeEstimateMutex_attributes = {
-  .name = "timeEstimateMutex"
-};
+///* Definitions for timeEstimateMutex */
+//osMutexId_t timeEstimateMutexHandle;
+//const osMutexAttr_t timeEstimateMutex_attributes = {
+//  .name = "timeEstimateMutex"
+//};
 /* Definitions for conditionMutex */
 osMutexId_t conditionMutexHandle;
 const osMutexAttr_t conditionMutex_attributes = {
@@ -250,6 +250,7 @@ static void MX_RF_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM1_Init(void);
 static void GlobalState_Init(void);
+static void updateInterval(void);
 void startUIControl(void *argument);
 void startESMMain(void *argument);
 void startButtonPress(void *argument);
@@ -306,6 +307,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   GlobalState_Init();
+
+  //Init Pseudo-Random Number Generation Seed
+  srand(0xFA1863A7);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -322,7 +327,7 @@ int main(void)
     lastSeenMutexHandle = osMutexNew(&lastSeenMutex_attributes);
 
     /* creation of timeEstimateMutex */
-    timeEstimateMutexHandle = osMutexNew(&timeEstimateMutex_attributes);
+    //timeEstimateMutexHandle = osMutexNew(&timeEstimateMutex_attributes);
 
     /* creation of conditionMutex */
     conditionMutexHandle = osMutexNew(&conditionMutex_attributes);
@@ -782,8 +787,8 @@ static void GlobalState_Init(){
 	GlobalState.lastSeenTime.time = tempTime;
 	GlobalState.lastSeenTime.date = tempDate;
 
-	GlobalState.timeEstimateSample.time = tempTime;
-	GlobalState.timeEstimateSample.date = tempDate;
+	//GlobalState.timeEstimateSample.time = tempTime;
+	//GlobalState.timeEstimateSample.date = tempDate;
 
 	GlobalState.lastConditions.lux = 0.0;
 	GlobalState.lastConditions.whiteLux = 0.0;
@@ -800,7 +805,15 @@ static void GlobalState_Init(){
 	GlobalState.surveyState.optionArrayLength = 0;
 
 	GlobalState.currentInterval = 0;
+	GlobalState.paused = 0;
 }
+
+static void updateInterval(){
+	uint32_t updateVal = rand() % (GlobalState.timeBound.maxInterval - GlobalState.timeBound.minInterval);
+	GlobalState.currentInterval = GlobalState.timeBound.minInterval + updateVal;
+}
+
+
 
 static inline void set_bit(long *x, int bitNum) {
     *x |= (1L << bitNum);
@@ -905,7 +918,7 @@ void startUIControl(void *argument)
   int16_t current_minute = -1;
   int16_t last_minute = -1;
 
-  uint8_t hrs, mins;
+  uint8_t hrs, mins, step, i;
   char time[5];
 
   uint8_t touch_end_count = 0;
@@ -937,7 +950,7 @@ void startUIControl(void *argument)
     	   switch (GlobalState.programMode) {
     	   	   case MODE_ESM_TIME_ESTIMATE:
     	   	       xTaskNotifyGive(esmMainHandle);
-           		   er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+           		   er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
            		   break;
     	   	   case MODE_ESM_SURVEY:
     	   	       er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
@@ -948,7 +961,7 @@ void startUIControl(void *argument)
     			   osMutexRelease(modeMutexHandle);
     			   //fall through to next case
     	   	   case MODE_TIME_ESTIMATE:
-    	   		   er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+    	   		   er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
           		   break;
     	   }
 
@@ -969,13 +982,6 @@ void startUIControl(void *argument)
 
   	   if (last_minute != current_minute) { //UPDATE TOUCH VALUE!
   		   //update touch stuff!
-           //
-           //map 10-50 to options for ESM_SURVEY
-           //
-           //for time guessing:
-           //
-           //if we have current_min 10>cm>=0 and last>50 add hr
-           //if we have current_min <=59 and 10>last>=0 subtract hr
 
            switch (GlobalState.programMode){
                 case MODE_ESM_SURVEY:
@@ -983,8 +989,8 @@ void startUIControl(void *argument)
                     er_oled_clear_bottom_third(oled_buf);
 
                     //divide 10-50 min into option steps roughly
-                    uint8_t step = 50 / (GlobalState.surveyState.optionArrayLength+1);
-                    for (int i=0; i<GlobalState.surveyState.optionArrayLength; i++){
+                    step = 50 / (GlobalState.surveyState.optionArrayLength+1);
+                    for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
                         //map minute to option
                         if(current_minute > (11 + i*step) &&
                            current_minute < (11 + (i+1)*step)){
@@ -1005,7 +1011,7 @@ void startUIControl(void *argument)
 
                     } else if (current_minute > 45 &&
                                last_minute < 15){
-                        if (hrs==0) {hrs = 23};
+                        if (hrs==0) {hrs = 23;}
                         else {hrs -= 1;}
                     }
 
@@ -1030,27 +1036,55 @@ void startUIControl(void *argument)
   	   touch_end_count += 1;//increment touching_end_count
 
   	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //FINISHED/CONFIRMED TOUCH VALUE!
+  		   uint8_t option = 0xFF;
+
+  		   switch (GlobalState.programMode){
+  		   	   case MODE_ESM_SURVEY:
+  		   		   //grab current option
+  		   		   for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
+  		   		     //map minute to option
+  		   		     if(last_minute > (11 + i*step) &&
+  		   		        last_minute < (11 + (i+1)*step)){
+  		   		         option = GlobalState.surveyState.optionArrayLength-1-i;
+  		   		     }
+  		   		   }
+
+  		   		   //send to ble
+  		   		   bleSendData.sendType = TX_SURVEY_RESULT;
+  		   		   bleSendData.data = (GlobalState.surveyState.surveyID << 8) | option;
+  		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+  		   		   //notify main thread
+  		   		   xTaskNotifyGive(esmMainHandle);
+  		   		   break;
+
+  		   	   case MODE_ESM_TIME_ESTIMATE:
+  		   		   //send to ble
+  		   		   bleSendData.sendType = TX_TIME_EST;
+  		   		   bleSendData.data = (hrs << 8) | last_minute;
+   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+   		   		   //notify main thread
+   		   		   xTaskNotifyGive(esmMainHandle);
+  		   		   break;
+
+  		   	   case MODE_TIME_ESTIMATE:
+  		   		   //send to ble
+  		   		   bleSendData.sendType = TX_TIME_EST;
+  		   		   bleSendData.data = (hrs << 8) | last_minute;
+   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+   		   		   //not from main thread, show time (which updates seen time, new interval, back to rest)
+  		   		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				   GlobalState.programMode = MODE_SHOW_TIME;
+				   osMutexRelease(modeMutexHandle);
+				   break;
+  		   }
 
   		   touch_end_count = 0;
-  		   if (GlobalState.programMode == MODE_ESM_TIME_ESTIMATE ||
-  			   GlobalState.programMode == MODE_ESM_SURVEY){
-  			   	   xTaskNotifyGive(esmMainHandle);
-  		   }
-  		   //DO THINGS WITH CONFIRMED TOUCH == LAST_MINUTE
-  		   char out_text[10];
-  		   sprintf(out_text, "FINAL: %d", last_minute);
-  		   er_oled_clear(oled_buf);
-  		   er_oled_string(0, 28, out_text, 12, 1, oled_buf);
-  		   er_oled_display(oled_buf);
-  		   if (GlobalState.programMode == MODE_TIME_ESTIMATE){
-  			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-  			   GlobalState.programMode = MODE_RESTING;
-  			   osMutexRelease(modeMutexHandle);
-  		   }
-  		   //uint16_t touchval = 0x5000 | last_minute;
-  		   //osMessageQueuePut(bleTXqueueHandle, &touchval, 0, 0);
-
   		   last_minute = -1;
+  		   er_oled_clear(oled_buf);
+  		   er_oled_display(oled_buf);
 
   	   }
 
@@ -1089,12 +1123,11 @@ void startUIControl(void *argument)
 	       bleSendData.data = 0x0000;
 	       osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
+	       updateInterval();
+
 	       osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 	       GlobalState.programMode = MODE_RESTING;
 	       osMutexRelease(modeMutexHandle);
-
-	       //TODO: PICK NEW INTERVAL
-	       /////////////////////////
 
 	       osDelay(3000);
 	       er_oled_clear(oled_buf);
@@ -1130,12 +1163,11 @@ void startUIControl(void *argument)
 		   bleSendData.data = 0x0000;
 		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
+		   updateInterval();
+
 		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		   GlobalState.programMode = MODE_RESTING;
 		   osMutexRelease(modeMutexHandle);
-
-		   //TODO: PICK NEW INTERVAL
-		   /////////////////////////
 
 		   osDelay(3000);
 		   er_oled_clear(oled_buf);
@@ -1165,7 +1197,7 @@ void startUIControl(void *argument)
 
        case MODE_ESM_TIME_ESTIMATE:
     	  er_oled_clear(oled_buf);
-    	  er_oled_string(0, 0, "GUESS TIME:", 12, 1, oled_buf);
+    	  er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
     	  er_oled_display(oled_buf);
     	  osDelay(100);
     	  break;
@@ -1210,24 +1242,38 @@ void startESMMain(void *argument)
 
   uint32_t notification;
 
+  RTC_TimeTypeDef cTime;
+  RTC_DateTypeDef cDate;
+
   /* Infinite loop */
   for(;;)
   {
-    //check state, get mode, call timer if necessary
 
-    //xTaskNotifyGive(startAlertHandle); to alert user with flash and vibration
-    osDelay(10000);
+    osDelay(5000);
 
-    //at random interval, bounded by timebounds ONLY WHEN IN MODE_RESTING
-    //(MODE_CANCEL/MODE_TIME_ESTIMATE can happen when user is looking at time;
-    //we want to wait for these to complete and use the updated time for estimating
-    //intervals
+    //Grab current time
+    osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+    HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+    HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+    osMutexRelease(rtcMutexHandle);
 
-    //if >timebound interval selection + lasttimeseen
-	//if between hours of timebound
-    //if mode is mode_resting
-    //
-    if (GlobalState.programMode == MODE_RESTING){
+    uint8_t curr_hrs = RTC_Bcd2ToByte(cTime.Hours);
+    uint8_t curr_min = RTC_Bcd2ToByte(cTime.Minutes);
+
+    //Grab last time hrs/min
+    uint8_t last_hrs = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Hours);
+    uint8_t last_min = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Minutes);
+
+    //TODO: here, write these conditions.  BLE_SEND with linked list if fail.
+    // BLE_RX with update time, update bounds, pause.  App that stores data.
+    // Make survey better.
+
+    //Init Survey:
+    // TIME BOUNDS for current time hrs
+    // curr_time > last_time + interval  (wrapped, in next 3 hours)
+    // programMode is RESTING
+    // not GlobalState.paused
+    if (GlobalState.programMode == MODE_RESTING && ){
 
     	//send TX_SURVEY_INITIALIZED
     	osMessageQueuePut(bleTXqueueHandle, &bleSendInit, 0, 0);
@@ -1276,8 +1322,8 @@ void startESMMain(void *argument)
     			//set up next interaction
     			//set up survey
     			osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-    			strncpy(GlobalState.surveyState.screenText, "  FOCUS?", strlen("  FOCUS?") + 1);
-    			GlobalState.surveyState.screenTextLength = strlen("  FOCUS?");
+    			strncpy(GlobalState.surveyState.screenText, "    FOCUS?", strlen("    FOCUS?") + 1);
+    			GlobalState.surveyState.screenTextLength = strlen("    FOCUS?");
     			GlobalState.surveyState.surveyID = SURVEY_FOCUS;
     			//GlobalState.surveyState.optionArray = opts_five;
     			memcpy(GlobalState.surveyState.optionArray, opts_five, sizeof(opts_five));
@@ -1351,10 +1397,6 @@ void startESMMain(void *argument)
 				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 				GlobalState.programMode = MODE_SHOW_TIME;
 				osMutexRelease(modeMutexHandle);;
-
-				//pick a new interval
-				//TODO: implement me!!!!!!!!!!!!!!!!!!!!!
-
 
 			} else {//timed out due to inactivity
 				continue_flag = 0;
@@ -1430,8 +1472,6 @@ void startButtonPress(void *argument)
 			  GlobalState.programMode = MODE_CANCEL;
 			  osMutexRelease(modeMutexHandle);
 
-			  //TODO: pick new interval
-			  /////////////////////////
 		  }
 
 		}
@@ -1447,8 +1487,6 @@ void startButtonPress(void *argument)
 		    	GlobalState.programMode = MODE_CANCEL;
 		    	osMutexRelease(modeMutexHandle);
 
-		    	//TODO: pick new interval
-				/////////////////////////
 		    }
 		}
 		if (callingPin == 0b100000 && first_read != buttonState[2]) { //button 3 trigger
@@ -1463,8 +1501,6 @@ void startButtonPress(void *argument)
 		    	GlobalState.programMode = MODE_CANCEL;
 		        osMutexRelease(modeMutexHandle);
 
-		        //TODO: pick new interval
-		        /////////////////////////
 		    }
 		}
 
@@ -1642,8 +1678,6 @@ void startBLETX(void *argument)
 
     	//TX_TIME_SEEN - data in GlobalState.lastSeenTime
 
-    	//TX_TIME_EST - data in GlobalState.timeEstimateSample
-
     	//TX_TEMP_HUMD - construct both TX_TEMP_HUMD/TX_LUX_WHITELUX
     	//               with data in GlobalState.lastConditions
 
@@ -1651,6 +1685,7 @@ void startBLETX(void *argument)
 
     	//TX_SURVEY_INITIALIZED -- just send that timestamped
 
+    	//TX_TIME_EST - use data in sendData, first byte is hr second byte is min
     	//TX_TIMESTAMP_UPDATE -- use data in sendData for error, to send
     	//TX_SURVEY_RESULT -- use data in sendData, first byte is survey/second is answer
 
