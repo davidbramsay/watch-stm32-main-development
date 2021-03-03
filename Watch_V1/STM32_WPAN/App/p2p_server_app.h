@@ -33,16 +33,6 @@ typedef enum
 } P2PS_APP__Opcode_Notification_evt_t;
 
 
-typedef struct{
-   uint8_t             Device_Led_Selection;
-   uint8_t             Led1;
-}P2P_LedCharValue_t;
-
-typedef struct{
-   uint8_t             Device_Button_Selection;
-   uint8_t             ButtonStatus;
-}P2P_ButtonCharValue_t;
-
 typedef struct
 {
   P2PS_APP__Opcode_Notification_evt_t   P2P_Evt_Opcode;
@@ -52,21 +42,22 @@ typedef struct
 typedef struct
  {
    uint8_t               Notification_Status; /* used to chek if P2P Server is enabled to Notify */
-   P2P_LedCharValue_t    LedControl;
-   P2P_ButtonCharValue_t ButtonControl;
-   uint16_t              ConnectionHandle;
+   uint8_t               Connected;
    uint64_t				 OTATimestamp;
    uint8_t				 OTA12HrFormat;
    uint8_t               OTADaylightSavings;
+
  } P2P_Server_App_Context_t;
 
-PLACE_IN_SECTION("BLE_APP_CONTEXT") static P2P_Server_App_Context_t P2P_Server_App_Context;
+//PLACE_IN_SECTION("BLE_APP_CONTEXT") static volatile P2P_Server_App_Context_t P2P_Server_App_Context;
+P2P_Server_App_Context_t P2P_Server_App_Context;
+
 
 /* Exported functions ---------------------------------------------*/
 void P2PS_APP_Init( void );
 void P2PS_APP_Notification( P2PS_APP_ConnHandle_Not_evt_t *pNotification );
-void P2PS_Send_Timestamp(void);
-void P2PS_Send_Data(uint16_t data);
+tBleStatus P2PS_Send_Timestamp(void);
+tBleStatus P2PS_Send_Data(uint16_t data);
 
 #ifdef __cplusplus
 }

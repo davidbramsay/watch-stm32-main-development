@@ -1,5 +1,22 @@
 /**
 
+This watch code has the following features:
+
+- the user can check the time anytime.  To do so, simply touch the dial and guess the time, and then the actual time will be shown.
+- if the user has seen/known the time from some external source and needs to know the time, they can hit the button, which registers a 'previous_invalid' and shows them the current time, to start again.
+- at random intervals the watch will buzz and ask for a time estimate and survey.  it will keep buzzing until it is attended to.  Pressing a button on the watch dismisses it without finishing the survey and
+  shows the current time, so that a new interval can be started. This should be done if the user has seen/knows the time since last looking at the watch.  Starting the survey and quitting halfway through 
+  will cause a timeout state; the user needs to hit the button to see the time and restart the interval timer if this happens.  Hitting the button is the correct way to deal with incorrect data entry.
+- if there is a problem with your data or you can't honestly enter a time estimate, hit the button.
+- these random interval surveys only will occur in between the hours specified by timebounds, which can be set in the app.  After hours survey attempts are ignored.  Once it's the start of a new day, the watch
+  wakes in 'paused' mode, which must be dismissed so the user can see the time and start interacting.
+- the app can put the watch into paused mode; no survey interruptions will be generated.  Hitting the button or using the button in the app can take the watch out of paused mode.  The app will remain in paused mode
+  indefinitely; paused mode is the default mode when waking up for a new day with the app.
+- Suggest putting the default 'start time' at 5a or an hour before you ever would conceivably wake up-- the watch will not buzz, it will simply be paused until woken.
+- The button presses mean 2 things; previous data is invalid and I've seen a clock.  If a survey isn't complete it should be discarded; if it is immediately followed by a button press (<10s) it should be discarded. 
+  Otherwise button presses should be considered 'invalidate the last time interval' because the user saw a clock, got a notification, or had a meeting with a set start time.
+- starts with hour of last seen time on the dial when you go to make an estimate.
+
 - thread to light and temp poll every 10s, send to BLETX
 
 - thread to manage screen and touch polling.  TOUCH_MODE controlled by

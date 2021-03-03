@@ -74,6 +74,7 @@ void P2PS_APP_Notification(P2PS_APP_ConnHandle_Not_evt_t *pNotification)
   switch(pNotification->P2P_Evt_Opcode)
   {
   case PEER_CONN_HANDLE_EVT :
+	  P2P_Server_App_Context.Connected = 1;
     break;
 
     case PEER_DISCON_HANDLE_EVT :
@@ -95,16 +96,10 @@ void P2PS_APP_Init(void)
 void  P2PS_APP_Context_Init(void)
 {
 	  //init context on app init and on reconnect events
-	  P2P_Server_App_Context.LedControl.Device_Led_Selection=0x01; /* Device1 */
-	  P2P_Server_App_Context.LedControl.Led1=0x00; /* led OFF */
-	  P2P_Server_App_Context.ButtonControl.Device_Button_Selection=0x01;/* Device1 */
-	  P2P_Server_App_Context.ButtonControl.ButtonStatus=0x00;
-	  P2P_Server_App_Context.OTATimestamp=0x0000000000000000;
-	  P2P_Server_App_Context.OTA12HrFormat=0x00;
-	  P2P_Server_App_Context.OTADaylightSavings=0x00;
+	  P2P_Server_App_Context.Connected = 0;
 }
 
-void P2PS_Send_Timestamp(void)
+tBleStatus P2PS_Send_Timestamp(void)
 {
 
    if(P2P_Server_App_Context.Notification_Status){
@@ -124,16 +119,16 @@ void P2PS_Send_Timestamp(void)
 	sendval <<= 32;
 	sendval |= (cTime.Hours << (8*3)) | (cTime.Minutes << (8*2)) | (cTime.Seconds << (8*1)) | (cTime.TimeFormat);
 
-	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 8);
+	return P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 8);
 
    } else {
     APP_DBG_MSG("-- P2P APPLICATION SERVER : CAN'T INFORM CLIENT -  NOTIFICATION DISABLED\n ");
    }
 
-  return;
+  return BLE_STATUS_FAILED;
 }
 
-void P2PS_Send_Data(uint16_t data)
+tBleStatus P2PS_Send_Data(uint16_t data)
 {
 
    if(P2P_Server_App_Context.Notification_Status){
@@ -158,8 +153,9 @@ void P2PS_Send_Data(uint16_t data)
 
 	sendval[0] = data;
 
-	P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 10);
+	return P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, 10);
 
+	/*
 	//if sending text, send text
 	if ((data & 0xFF00) == 0x6300){
 		P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&ScreenState.screenText, sizeof(ScreenState.screenText));
@@ -169,13 +165,13 @@ void P2PS_Send_Data(uint16_t data)
 		}
 
 	}
-
+	*/
 
    } else {
     APP_DBG_MSG("-- P2P APPLICATION SERVER : CAN'T INFORM CLIENT -  NOTIFICATION DISABLED\n ");
    }
 
-  return;
+  return BLE_STATUS_FAILED;
 }
 
 /* USER CODE END FD_LOCAL_FUNCTIONS*/

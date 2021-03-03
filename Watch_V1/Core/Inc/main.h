@@ -100,7 +100,9 @@ typedef struct {
 
 static const char* const opts_five[][8] = {"      1", "      2", "      3", "      4", "      5"};
 static const char* const opts_agree[][11] = {"  disagree", "    agree"};
-
+static const char* const opts_valence[][11] = {"vry negative", "  negative", "  neutral", "  positive", "vry positive"};
+static const char* const opts_arousal[][11] = {"  very low", "    low", "  medium", "    high", " very high"};
+static const char* const opts_yes[][11] = {"     no", "    yes"};
 
 
 typedef struct {
@@ -125,8 +127,9 @@ typedef enum {
 	TX_TIME_EST,            //3
 	TX_TIME_SEEN,           //4
 	TX_SURVEY_RESULT,       //5
-	TX_LAST_SURVEY_INVALID, //6
-	TX_TIMESTAMP_UPDATE     //7
+	TX_PREVIOUS_INVALID,    //6
+	TX_TIMESTAMP_UPDATE,    //7
+	TX_BEGIN_PAUSE			//8
 } SendDataType_t;
 
 //data pass to BLETX thread
@@ -138,17 +141,17 @@ typedef struct {
 //add data to queue if we cant send over BLE,
 //dynamic allocation to grow until we cannot malloc anymore
 typedef struct {
-	uint16_t rtcstamp[4];
-	SendDataType_t datatype;
-	uint8_t *data;
+	uint16_t *packet;
+	uint8_t numBytes;
 	struct UnsentQueue_t *next;
 } UnsentQueue_t;
 
 typedef UnsentQueue_t *UnsentQueueAddress_t;
 
-#define TOUCH_END_TIMEOUT 40 //loops of 25ms before timeout
+#define TOUCH_HISTORY_SIZE 10 //size of touch history used for smoothing
+#define TOUCH_END_TIMEOUT 75 //loops of 25ms before timeout
 #define ALERT_TIMEOUT 6000 //timeout in in MS before rebuzzing ESM if ignored
-#define INTERACTION_TIMEOUT 4000 //ms timeout in MS for each question before assume abandoned
+#define INTERACTION_TIMEOUT 45000 //ms timeout in MS for each question before assume abandoned
 //make alert timeout variable so it doesn't help with time estimation
 
 

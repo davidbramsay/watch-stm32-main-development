@@ -56,7 +56,7 @@
 #include "veml7700.h"
 
 #include "p2p_server_app.h"
-
+#include "p2p_stm.h"
 
 #define NUM_PIXELS 12
 
@@ -775,8 +775,8 @@ static void MX_GPIO_Init(void)
 static void GlobalState_Init(){
 	GlobalState.timeBound.startHR_BCD = 0x10; //10AM, BCD
 	GlobalState.timeBound.endHR_BCD = 0x22;   //10PM, BCD
-	GlobalState.timeBound.minInterval = 15;   //15min min interval
-	GlobalState.timeBound.maxInterval = 90;   //90min max interval
+	GlobalState.timeBound.minInterval = 5;   //15min min interval
+	GlobalState.timeBound.maxInterval = 10;   //90min max interval
 
 	RTC_TimeTypeDef tempTime;
 	RTC_DateTypeDef tempDate;
@@ -916,8 +916,11 @@ void startUIControl(void *argument)
   er_oled_display(oled_buf);
 
   int16_t current_minute = -1;
-  int16_t last_minute = -1;
-
+  int16_t display_minute = -1;
+  int16_t last_display_minute = -1;
+  int16_t minute_history[TOUCH_HISTORY_SIZE] = {0};
+  uint8_t history_ind = 0;
+  int16_t min_minute, max_minute;
   uint8_t hrs, mins, step, i;
   char time[5];
 
@@ -938,12 +941,18 @@ void startUIControl(void *argument)
     for(;;)
     {
 
+     // -- Adjust/Dial in Angle Mapping for Touch Sensor -- //
+     //uint16_t current_angle = iqs263_get_angle();
+     //er_oled_clear(oled_buf);
+     //sprintf (time, "%d", current_angle);
+     //er_oled_string(0, 0, time, 12, 1, oled_buf);
+     //er_oled_display(oled_buf);
+     // /* comment out when doing angle adjustments
+
 	 current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
      if (current_minute != -1) { //touch!
 
        if (!touch_end_count){ //START TOUCH EVENT!
-
-    	   touch_end_count = 1;
 
     	   er_oled_clear(oled_buf);
 
@@ -977,11 +986,40 @@ void startUIControl(void *argument)
                 hrs = RTC_Bcd2ToByte(cTime.Hours);
                 mins = 0x00;
            }
+
+           //on immediate touch set history to current minute
+           for (i=0; i < TOUCH_HISTORY_SIZE; i++){
+        	   minute_history[i] = current_minute;
+           }
        }
 
+       touch_end_count = 1;
 
-  	   if (last_minute != current_minute) { //UPDATE TOUCH VALUE!
-  		   //update touch stuff!
+       //put current minute in history buffer and advance circular index
+       minute_history[history_ind] = current_minute;
+       history_ind = (history_ind + 1) % TOUCH_HISTORY_SIZE;
+
+       //TWO MODES - fast and slow
+       // if large variation (min and max in buffer > 3 min) set display_time to current_time, else average
+
+       //take average of buffer, get min and max; that's what should be displayed
+       display_minute = 0;
+       min_minute = 60;
+       max_minute = 0;
+       for (i=0; i< TOUCH_HISTORY_SIZE; i++){
+    	   display_minute += minute_history[i];
+    	   if (minute_history[i] < min_minute) min_minute = minute_history[i];
+    	   if (minute_history[i] > max_minute) max_minute = minute_history[i];
+       }
+
+       if (max_minute-min_minute > 4) {
+    	   display_minute = current_minute;
+       } else {
+    	   display_minute /= TOUCH_HISTORY_SIZE;
+       }
+
+       //if last displayed is not what should be displayed, display
+  	   if (last_display_minute != display_minute) { //UPDATE TOUCH VALUE!
 
            switch (GlobalState.programMode){
                 case MODE_ESM_SURVEY:
@@ -992,8 +1030,8 @@ void startUIControl(void *argument)
                     step = 50 / (GlobalState.surveyState.optionArrayLength+1);
                     for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
                         //map minute to option
-                        if(current_minute > (11 + i*step) &&
-                           current_minute < (11 + (i+1)*step)){
+                        if(display_minute > (11 + i*step) &&
+                           display_minute < (11 + (i+1)*step)){
                             er_oled_string(0, 28, GlobalState.surveyState.optionArray[GlobalState.surveyState.optionArrayLength-1-i], 12, 1, oled_buf);
                         }
                     }
@@ -1004,25 +1042,25 @@ void startUIControl(void *argument)
                 case MODE_ESM_TIME_ESTIMATE:
 
                     //hours wrap
-                    if (current_minute < 15 &&
-                        current_minute >= 0 &&
-                        last_minute > 45){
+                    if (display_minute < 15 &&
+                        display_minute >= 0 &&
+                        last_display_minute > 45){
                         hrs = (hrs+1)%24;
 
-                    } else if (current_minute > 45 &&
-                               last_minute < 15){
+                    } else if (display_minute > 45 &&
+                               last_display_minute < 15){
                         if (hrs==0) {hrs = 23;}
                         else {hrs -= 1;}
                     }
 
                     //display time on bottom two thirds
-                    sprintf (time, "%02d%02d", hrs, current_minute);
+                    sprintf (time, "%02d%02d", hrs, display_minute);
                     er_oled_time_twothird(time, oled_buf);
 
                     break;
            }
 
-  		   last_minute = current_minute;
+           last_display_minute = display_minute;
 
   	   }
 
@@ -1043,8 +1081,8 @@ void startUIControl(void *argument)
   		   		   //grab current option
   		   		   for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
   		   		     //map minute to option
-  		   		     if(last_minute > (11 + i*step) &&
-  		   		        last_minute < (11 + (i+1)*step)){
+  		   		     if(last_display_minute > (11 + i*step) &&
+  		   		        last_display_minute < (11 + (i+1)*step)){
   		   		         option = GlobalState.surveyState.optionArrayLength-1-i;
   		   		     }
   		   		   }
@@ -1061,7 +1099,7 @@ void startUIControl(void *argument)
   		   	   case MODE_ESM_TIME_ESTIMATE:
   		   		   //send to ble
   		   		   bleSendData.sendType = TX_TIME_EST;
-  		   		   bleSendData.data = (hrs << 8) | last_minute;
+  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
    		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
    		   		   //notify main thread
@@ -1071,7 +1109,7 @@ void startUIControl(void *argument)
   		   	   case MODE_TIME_ESTIMATE:
   		   		   //send to ble
   		   		   bleSendData.sendType = TX_TIME_EST;
-  		   		   bleSendData.data = (hrs << 8) | last_minute;
+  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
    		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
    		   		   //not from main thread, show time (which updates seen time, new interval, back to rest)
@@ -1082,7 +1120,7 @@ void startUIControl(void *argument)
   		   }
 
   		   touch_end_count = 0;
-  		   last_minute = -1;
+  		   last_display_minute = -1;
   		   er_oled_clear(oled_buf);
   		   er_oled_display(oled_buf);
 
@@ -1211,6 +1249,11 @@ void startUIControl(void *argument)
 
        case MODE_RESTING:
 		   osDelay(250);
+		   if (GlobalState.paused){
+			   er_oled_clear(oled_buf);
+			   er_oled_string(0, 14, "   paused", 12, 1, oled_buf);
+			   er_oled_display(oled_buf);
+		   }
 		   break;
 
        default:
@@ -1219,11 +1262,27 @@ void startUIControl(void *argument)
        }
 
      }
+     // comment out when doing angle adjustments -- */
     }
 
 
 
   /* USER CODE END startUIControl */
+}
+
+
+uint8_t check_time_bounds(uint8_t curr_hrs){
+	//check time bounds, account for wrap (i.e. give time bounds of 10a-3a)
+
+	uint8_t starthr = RTC_Bcd2ToByte(GlobalState.timeBound.startHR_BCD);
+	uint8_t endhr = RTC_Bcd2ToByte(GlobalState.timeBound.endHR_BCD);
+
+	if (starthr < endhr){
+		return (curr_hrs >= starthr && curr_hrs < endhr);
+	} else {
+		return (curr_hrs >= starthr || curr_hrs < endhr);
+	}
+
 }
 
 /* USER CODE BEGIN Header_startESMMain */
@@ -1249,7 +1308,8 @@ void startESMMain(void *argument)
   for(;;)
   {
 
-    osDelay(5000);
+	//only check time 3 times a min to see if we need a survey
+    osDelay(20000); //20 sec delay
 
     //Grab current time
     osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
@@ -1268,12 +1328,17 @@ void startESMMain(void *argument)
     // BLE_RX with update time, update bounds, pause.  App that stores data.
     // Make survey better.
 
+    //Going to do time in minutes for ease.  60 min *24 hours = 1440 min / day
+    uint16_t thresh_time_in_min = (60*last_hrs + last_min + GlobalState.currentInterval) % 1440;
+    uint16_t current_time_in_min = (60*curr_hrs + curr_min) % 1440;
+
     //Init Survey:
     // TIME BOUNDS for current time hrs
-    // curr_time > last_time + interval  (wrapped, in next 3 hours)
+    // curr_time == last_time + interval  (minute resolution, this is checked every 15 sec).
     // programMode is RESTING
     // not GlobalState.paused
-    if (GlobalState.programMode == MODE_RESTING && ){
+    if (GlobalState.programMode == MODE_RESTING && !GlobalState.paused &&
+    	check_time_bounds(curr_hrs) && thresh_time_in_min == current_time_in_min){
 
     	//send TX_SURVEY_INITIALIZED
     	osMessageQueuePut(bleTXqueueHandle, &bleSendInit, 0, 0);
@@ -1407,16 +1472,24 @@ void startESMMain(void *argument)
 			}
 		}
 
+    } else {//not time for a survey
+
+    	//get hour for last_seen + interval (trigger) time
+    	uint8_t extra_hours = (last_min + GlobalState.currentInterval) / 60;
+    	last_hrs = (last_hrs + extra_hours) % 24;
+
+    	//if next trigger is outside of timebound (i.e. last seen time is end of the day) AND
+    	//its the morning (curr_hr = startHR), put it in paused mode, wait for user to initiate.
+    	if (!check_time_bounds(last_hrs) && (curr_hrs == RTC_Bcd2ToByte(GlobalState.timeBound.startHR_BCD)) && !GlobalState.paused){
+    		GlobalState.paused = 1;
+    		const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
+     		osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
+
+
+    	}
+
     }
 
-
-    //osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-	//osMutexRelease(ledStateMutexHandle);
-
-    //floats are 32-bits, so 4 bytes. 16 bytes for total
-   	//osMessageQueuePut(bleRXqueueHandle, &(pNotification->DataTransfered), 0, 0);
-    //const BLETX_Queue_t bleSendData = {TX_TEMP_HUMD, 0x0000};
-    //osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
   }
   /* USER CODE END startESMMain */
@@ -1438,7 +1511,7 @@ void startButtonPress(void *argument)
   uint8_t buttonState[] = {1, 1, 1};
   uint32_t callingPin = 0x00;
 
-  const BLETX_Queue_t bleSendData = {TX_LAST_SURVEY_INVALID, 0x0000};
+  const BLETX_Queue_t bleSendData = {TX_PREVIOUS_INVALID, 0x0000};
 
   for(;;)
   {
@@ -1468,6 +1541,8 @@ void startButtonPress(void *argument)
 		  if (!first_read){
 			  osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
+			  GlobalState.paused = 0;
+
 			  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 			  GlobalState.programMode = MODE_CANCEL;
 			  osMutexRelease(modeMutexHandle);
@@ -1483,6 +1558,8 @@ void startButtonPress(void *argument)
 		    if (!first_read){
 		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
+		    	GlobalState.paused = 0;
+
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
 		    	osMutexRelease(modeMutexHandle);
@@ -1496,6 +1573,8 @@ void startButtonPress(void *argument)
 		    //do stuff if button pressed
 		    if (!first_read){
 		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+		    	GlobalState.paused = 0;
 
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
@@ -1652,7 +1731,7 @@ void startConditionsPoll(void *argument)
 
 		osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-    	osDelay(9900);
+    	osDelay(29900);
   	}
 
 /* USER CODE END startConditionsPoll */
@@ -1669,27 +1748,201 @@ void startConditionsPoll(void *argument)
 void startBLETX(void *argument)
 {
   /* USER CODE BEGIN startBLETX */
+
+  //TX_TIME_SEEN - data in GlobalState.lastSeenTime
+  //TX_TEMP_HUMD - construct both TX_TEMP_HUMD/TX_LUX_WHITELUX
+  //               with data in GlobalState.lastConditions
+
+  //TX_PREVIOUS_INVALID -- just send that timestamped
+  //TX_SURVEY_INITIALIZED -- just send that timestamped
+
+  //TX_TIME_EST - use data in sendData, first byte is hr second byte is min
+  //TX_TIMESTAMP_UPDATE -- use data in sendData for error, to send
+  //TX_SURVEY_RESULT -- use data in sendData, first byte is survey/second is answer
+
   BLETX_Queue_t sendData;
+
+  UnsentQueueAddress_t DataQueue = NULL;
+
+  RTC_TimeTypeDef cTime;
+  RTC_DateTypeDef cDate;
+  uint16_t sendval[10] = {0};
+  uint16_t lightval[4] = {0};
+  uint8_t numBytes = 0;
 
   /* Infinite loop */
   for(;;)
   {
-    if (osMessageQueueGet(bleTXqueueHandle, &sendData, NULL, osWaitForever) == osOK){
+        if (osMessageQueueGet(bleTXqueueHandle, &sendData, NULL, osWaitForever) == osOK){
 
-    	//TX_TIME_SEEN - data in GlobalState.lastSeenTime
+          //construct timestamped data to send
+          osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+          HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+          HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+          osMutexRelease(rtcMutexHandle);
 
-    	//TX_TEMP_HUMD - construct both TX_TEMP_HUMD/TX_LUX_WHITELUX
-    	//               with data in GlobalState.lastConditions
+          switch (sendData.sendType){
+            case TX_PREVIOUS_INVALID:
+            case TX_SURVEY_INITIALIZED:
+            case TX_BEGIN_PAUSE:
 
-    	//TX_LAST_SURVEY_INVALID -- just send that timestamped
+            	sendval[4] = (cDate.WeekDay << (8*1)) | cDate.Month;
+            	sendval[3] = (cDate.Date << (8*1)) | cDate.Year;
+            	sendval[2] = (cTime.Hours << (8*1)) | cTime.Minutes;
+            	sendval[1] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+            	sendval[0] = sendData.sendType;
+            	numBytes = 10;
+            	break;
 
-    	//TX_SURVEY_INITIALIZED -- just send that timestamped
+            case TX_TIME_EST:
+            case TX_TIMESTAMP_UPDATE:
+            case TX_SURVEY_RESULT:
+            	sendval[5] = (cDate.WeekDay << (8*1)) | cDate.Month;
+            	sendval[4] = (cDate.Date << (8*1)) | cDate.Year;
+            	sendval[3] = (cTime.Hours << (8*1)) | cTime.Minutes;
+            	sendval[2] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+            	sendval[1] = sendData.sendType;
+            	sendval[0] = sendData.data;
+            	numBytes = 12;
+            	break;
 
-    	//TX_TIME_EST - use data in sendData, first byte is hr second byte is min
-    	//TX_TIMESTAMP_UPDATE -- use data in sendData for error, to send
-    	//TX_SURVEY_RESULT -- use data in sendData, first byte is survey/second is answer
+            case TX_TIME_SEEN:
+            	sendval[8] = (cDate.WeekDay << (8*1)) | cDate.Month;
+            	sendval[7] = (cDate.Date << (8*1)) | cDate.Year;
+            	sendval[6] = (cTime.Hours << (8*1)) | cTime.Minutes;
+            	sendval[5] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+            	sendval[4] = sendData.sendType;
 
-    	P2PS_Send_Data(sendData.data);
+                osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+                cTime = GlobalState.lastSeenTime.time;
+                cDate = GlobalState.lastSeenTime.date;
+                osMutexRelease(lastSeenMutexHandle);
+
+                sendval[3] = (cDate.WeekDay << (8*1)) | cDate.Month;
+                sendval[2] = (cDate.Date << (8*1)) | cDate.Year;
+                sendval[1] = (cTime.Hours << (8*1)) | cTime.Minutes;
+                sendval[0] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+            	numBytes = 18;
+            	break;
+
+            case TX_TEMP_HUMD:
+            case TX_LUX_WHITELUX:
+            	sendval[8] = (cDate.WeekDay << (8*1)) | cDate.Month;
+            	sendval[7] = (cDate.Date << (8*1)) | cDate.Year;
+            	sendval[6] = (cTime.Hours << (8*1)) | cTime.Minutes;
+            	sendval[5] = (cTime.Seconds << (8*1)) | cTime.TimeFormat;
+            	sendval[4] = TX_TEMP_HUMD;
+            	numBytes = 18;
+
+            	osMutexAcquire(conditionMutexHandle, portMAX_DELAY);
+            	memcpy(&(sendval[2]), &GlobalState.lastConditions.temp, 4);
+            	memcpy(sendval, &GlobalState.lastConditions.humd, 4);
+            	memcpy(&(lightval[2]), &GlobalState.lastConditions.lux, 4);
+            	memcpy(lightval, &GlobalState.lastConditions.whiteLux, 4);
+            	osMutexRelease(conditionMutexHandle);
+            	break;
+
+                //CONSTRUCT SECOND PACKET FOR CONDITIONS
+                //sendval[4] = TX_LUX_WHITELUX
+                //memcpy(sendval, lightval, 8);
+          }
+
+
+          //try to send queued data if we have a queue
+          uint8_t dataSuccessFlag = 1;
+
+          if (!P2P_Server_App_Context.Connected) { dataSuccessFlag = 0;}
+
+          while(DataQueue && dataSuccessFlag){//we have data queued and have not failed to send data
+
+        	  //try to send data at front of list
+        	  if (P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)DataQueue->packet, DataQueue->numBytes) == BLE_STATUS_SUCCESS){
+
+        		  //if successful, move dataQueue to next, which is NULL for last element, and free memory
+        		  UnsentQueueAddress_t addressJustSent = DataQueue;
+        		  DataQueue = DataQueue->next;
+
+        		  vPortFree(addressJustSent->packet);
+        		  vPortFree(addressJustSent);
+
+        	  } else {  //if unsuccessful, dataSuccessFlag = 0
+        		  dataSuccessFlag = 0;
+        	  }
+          }
+
+        //if we haven't had a data failure with the queue, try to send current data packet
+        if (dataSuccessFlag){
+        	if (P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, numBytes) != BLE_STATUS_SUCCESS){
+        		//unsuccessful packet send means we flag it
+        		dataSuccessFlag = 0;
+
+        	} else if (sendData.sendType == TX_TEMP_HUMD){ //if first packet was successful and we're transmitting conditions
+
+        		//construct second packet for conditions
+                sendval[4] = TX_LUX_WHITELUX;
+                memcpy(sendval, lightval, 8);
+
+                //and send it
+        		if (P2PS_STM_App_Update_Int8(P2P_NOTIFY_CHAR_UUID, (uint8_t *)&sendval, numBytes) != BLE_STATUS_SUCCESS){
+        		        dataSuccessFlag = 0;
+        		}
+        	}
+
+        }
+
+        //if we had a data send failure at any point, add current packet to the queue dynamically
+        if (!dataSuccessFlag){
+
+        	//malloc the packet data
+        	uint16_t *newPacketAddress = pvPortMalloc(numBytes);
+        	//copy the packet data in from sendval
+        	memcpy(newPacketAddress, sendval, numBytes);
+
+        	//malloc the queue item that points to that data
+        	UnsentQueue_t *newQueueItemAddress = pvPortMalloc(sizeof(UnsentQueue_t));
+        	//correctly fill the new Queue Item
+        	newQueueItemAddress->packet = newPacketAddress;
+        	newQueueItemAddress->numBytes = numBytes;
+        	newQueueItemAddress->next = NULL;
+
+        	//if DataQueue is empty, simply set the queue address to this one.
+        	if (!DataQueue){ DataQueue = newQueueItemAddress; }
+        	else {//otherwise traverse until we get null
+        		UnsentQueueAddress_t current_node = DataQueue;
+        		while (current_node->next){ //while the pointer to the next is not null
+        			current_node = current_node->next; //update current_node to next
+        		}
+        		current_node->next = newQueueItemAddress;
+        	}
+
+        	if (sendData.sendType == TX_TEMP_HUMD && sendval[4] == TX_TEMP_HUMD){
+        		//if we're sending conditions and we didn't successfully move to second packet,
+        		//add second packet to data queue as well
+        		sendval[4] = TX_LUX_WHITELUX;
+        		memcpy(sendval, lightval, 8);
+
+        		//malloc the packet data
+				uint16_t *newPacketAddress = pvPortMalloc(numBytes);
+				//copy the packet data in from sendval
+				memcpy(newPacketAddress, sendval, numBytes);
+
+				//malloc the queue item that points to that data
+				UnsentQueue_t *newQueueItemAddress = pvPortMalloc(sizeof(UnsentQueue_t));
+				//correctly fill the new Queue Item
+				newQueueItemAddress->packet = newPacketAddress;
+				newQueueItemAddress->numBytes = numBytes;
+				newQueueItemAddress->next = NULL;
+
+				UnsentQueueAddress_t current_node = DataQueue;
+
+				while (current_node->next){ //while the pointer to the next is not null
+					current_node = current_node->next; //update current_node to next
+				}
+
+				current_node->next = newQueueItemAddress;
+
+        	}
+        }
     }
   }
   /* USER CODE END startBLETX */
@@ -1742,59 +1995,83 @@ void startBLERX(void *argument)
     		sDate.Date    = timestampvals[2];
     		sDate.Year    = timestampvals[3];
 
+    		RTC_TimeTypeDef cTime;
+   	        RTC_DateTypeDef cDate;
+
     		osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+    		HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+    		HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
     		if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
     		if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {Error_Handler();}
     	    osMutexRelease(rtcMutexHandle);
 
+    	    //calculate the seconds off between the two.
+    	    uint8_t prev_hrs = RTC_Bcd2ToByte(cTime.Hours);
+    	    uint8_t prev_min = RTC_Bcd2ToByte(cTime.Minutes);
+    	    uint8_t prev_sec = RTC_Bcd2ToByte(cTime.Seconds);
+
+    	    uint8_t new_hrs = RTC_Bcd2ToByte(sTime.Hours);
+    	    uint8_t new_min = RTC_Bcd2ToByte(sTime.Minutes);
+    	    uint8_t new_sec = RTC_Bcd2ToByte(sTime.Seconds);
+
+    	    int32_t new_totalsec = (60*60*new_hrs + 60*new_min + new_sec); //86400 sec in day
+    	    int32_t prev_totalsec = (60*60*prev_hrs + 60*prev_min + prev_sec);
+
+    	    int32_t forward_diff;
+    	    int32_t backward_diff;
+
+    	    int16_t signed_sec_difference; //cant hold more than 9 hours difference
+
+    	    if (new_totalsec > prev_totalsec) {
+    	    	forward_diff  = new_totalsec - prev_totalsec;
+    	    	backward_diff = 86400 - forward_diff;
+    	    } else {
+    	    	backward_diff = prev_totalsec - new_totalsec;
+    	    	forward_diff  = 86400 - backward_diff;
+    	    }
+
+    	    if (backward_diff < forward_diff){
+    	    	signed_sec_difference= -1 * backward_diff;
+    	    }else {
+    	    	signed_sec_difference = forward_diff;
+    	    }
+
+    	    BLETX_Queue_t bleSendUpdate = {TX_TIMESTAMP_UPDATE, 0x00};
+			bleSendUpdate.data = (uint16_t)signed_sec_difference;
+			osMessageQueuePut(bleTXqueueHandle, &bleSendUpdate, 0, 0);
 		}
 
+		else if (rxData.pPayload[0] == 0x01) {//change time bounds
+			//startHR, endHR in BCD
+			GlobalState.timeBound.startHR_BCD = rxData.pPayload[1];
+			GlobalState.timeBound.endHR_BCD  = rxData.pPayload[2];
 
-/*		else if (rxData.pPayload[0] == 0x06) {//screen text update starts with 0x06
+			GlobalState.paused = 1;
+			const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
+			osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
+		}
 
-			//works great if string sent is <=18 and has a '00' byte (19 + update byte, 20 byte MTU)
-			//'00' obviously connotes the end of the string.
-			//should edit this to have a char buffer in place (128 byte) that copies over
-			// rxData.pPayload[1] for rxData.Length - 1, check last byte.  if 00 stop,
-			//otherwise wait and keep filling buffer with next packet.
-			//write a complementary send function that adds a hex '00' and chops the full string
-			//into 19 byte chunks when sending with 0x01 header from phone.
-			strncpy(&(textbuffer[continuing*19]), &(rxData.pPayload[1]), rxData.Length - 1);
-			continuing += 1;
+		else if (rxData.pPayload[0] == 0x02) {//pause or unpause watch
 
-			if (rxData.pPayload[rxData.Length-1] == 0x00) { //completed string
+			if (rxData.pPayload[1]) { //pause things
 
-				osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-				strncpy(ScreenState.screenText, textbuffer, 128);
-				osMutexRelease(screenTextMutexHandle);
-				xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+				GlobalState.paused = 1;
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_RESTING;
+				osMutexRelease(modeMutexHandle);
+	    		const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
+	     		osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
 
-				continuing = 0;
+			} else { //unpause things
 
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_SHOW_TIME;
+				osMutexRelease(modeMutexHandle);
+				GlobalState.paused = 0;
 			}
 
-			//osMutexAcquire(screenTextMutexHandle, portMAX_DELAY);
-			//strncpy(ScreenState.screenText, &(rxData.pPayload[1]), rxData.Length - 1);
-			//osMutexRelease(screenTextMutexHandle);
-			//xTaskNotify(screenUpdateHandle, (uint32_t)SCREEN_TEXT, eSetValueWithOverwrite);
+		}
 
-		} else if (rxData.pPayload[0] == 0x03) { //vibrate payload with duration to vibrate starts with 0x03
-
-			//uint8_t duration[4] = {0};
-	    	//memcpy(&(duration[4-(rxData.Length-1)]), &(rxData.pPayload[1]), rxData.Length-1);
-	    	//uint32_t send_duration = duration[0] << 24 | duration[1] << 16 | duration[2] << 8 | duration[3];
-
-	    	uint32_t send_duration = 0;
-	    	for (uint8_t i=0; i<rxData.Length-1; i++){
-	    		send_duration |= rxData.pPayload[1+i] << ((rxData.Length-2-i)*8);
-	    	}
-
-	    	xTaskNotify(vibrateControlHandle, send_duration, eSetValueWithOverwrite);
-	    } else if (rxData.pPayload[0] == 0x07) { //led state update
-	    	osMutexAcquire(ledStateMutexHandle, portMAX_DELAY);
-	    	LedState.currentMode = rxData.pPayload[1];
-	    	osMutexRelease(ledStateMutexHandle);
-	    }*/
 	}
   }
   /* USER CODE END startBLERX */

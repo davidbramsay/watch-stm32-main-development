@@ -39,7 +39,14 @@ int _get_angle(int* c) {
   int angle = ANGLE_OFFSET;
   int warped_angle;
 
-  if (c[1] > c[3] && c[2] > c[3]) { //first third, between 1 and 2
+  if ( ((c[1]==0) + (c[2]==0) + (c[3]==0)) > 1){//if more than one value is zero
+	  if (c[1]) angle += 0;
+	  else if (c[2]) angle += 120;
+	  else if (c[3]) angle += 240;
+	  else return -1;
+  }
+
+  else if (c[1] > c[3] && c[2] > c[3]) { //first third, between 1 and 2
     int pos1 = c[1]-c[3];
     int pos2 = c[2]-c[3];
     angle += _get_pad_angle(pos1, pos2);
@@ -66,6 +73,7 @@ int _get_angle(int* c) {
 
 int _get_min(int* c) {
 	int angle = _get_angle(c);
+	if (angle == -1) return -1;
 	return angle/6;
 }
 
