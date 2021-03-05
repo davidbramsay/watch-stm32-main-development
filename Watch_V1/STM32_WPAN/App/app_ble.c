@@ -220,7 +220,7 @@ PLACE_IN_SECTION("BLE_APP_CONTEXT") static uint16_t AdvIntervalMin, AdvIntervalM
 //P2P FIX
 P2PS_APP_ConnHandle_Not_evt_t handleNotification;
 #define SIZE_TAB_CONN_INT            2
-float tab_conn_interval[SIZE_TAB_CONN_INT] = {50, 1000} ; /* ms */
+float tab_conn_interval[SIZE_TAB_CONN_INT] = {50, 50} ; /* ms */
 uint8_t index_con_int, mutex;
 
 static const char local_name[] = { AD_TYPE_COMPLETE_LOCAL_NAME ,'D','R','A','M','S','A','Y'};

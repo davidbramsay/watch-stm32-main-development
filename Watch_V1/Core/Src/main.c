@@ -1425,8 +1425,8 @@ void startESMMain(void *argument)
 				//set up next interaction
 				//set up survey
 				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, "  TIME CUE", strlen("  TIME CUE") + 1);
-				GlobalState.surveyState.screenTextLength = strlen("  TIME CUE");
+				strncpy(GlobalState.surveyState.screenText, "NO TIME CUE?", strlen("NO TIME CUE?") + 1);
+				GlobalState.surveyState.screenTextLength = strlen("NO TIME CUE?");
 				GlobalState.surveyState.surveyID = SURVEY_TIMECUE;
 				//&(GlobalState.surveyState.optionArray) = &opts_agree;
 				memcpy(GlobalState.surveyState.optionArray, opts_agree, sizeof(opts_agree));
@@ -1850,6 +1850,8 @@ void startBLETX(void *argument)
 
           //try to send queued data if we have a queue
           uint8_t dataSuccessFlag = 1;
+          uint8_t failed_attempts = 0;
+		  const uint8_t MAX_ATTEMPTS = 50;
 
           if (!P2P_Server_App_Context.Connected) { dataSuccessFlag = 0;}
 
@@ -1865,8 +1867,12 @@ void startBLETX(void *argument)
         		  vPortFree(addressJustSent->packet);
         		  vPortFree(addressJustSent);
 
-        	  } else {  //if unsuccessful, dataSuccessFlag = 0
-        		  dataSuccessFlag = 0;
+        		  failed_attempts = 0;
+        	  } else {  //if unsuccessful MAX_ATTEMPTS in a row, dataSuccessFlag = 0
+        		  failed_attempts +=1;
+
+        		  if (failed_attempts >= MAX_ATTEMPTS){ dataSuccessFlag = 0; }
+        		  else { osDelay(2); }
         	  }
           }
 
@@ -1890,7 +1896,7 @@ void startBLETX(void *argument)
 
         }
 
-        //if we had a data send failure at any point, add current packet to the queue dynamically
+        //if we had a data send failure, add current packet to the queue dynamically
         if (!dataSuccessFlag){
 
         	//malloc the packet data
