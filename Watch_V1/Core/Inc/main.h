@@ -54,6 +54,7 @@ void Error_Handler(void);
 #define SURVEY_TIMECUE  0x5 //event with known clock reference, notification about time, in last interval?
 #define SURVEY_CAFFEINE 0x6 //drink caffeine in last interval?
 #define SURVEY_EXERCISE 0x7 //exercise in last interval? heavy light no
+#define SURVEY_STRESS   0x8 //stress during last interval
 
 //settings for when to randomly ESM
 typedef struct {
@@ -101,7 +102,7 @@ typedef struct {
 static const char* const opts_five[][8] = {"      1", "      2", "      3", "      4", "      5"};
 static const char* const opts_agree[][11] = {"  disagree", "    agree"};
 static const char* const opts_valence[][11] = {"vry negative", "  negative", "  neutral", "  positive", "vry positive"};
-static const char* const opts_arousal[][11] = {"  very low", "    low", "  medium", "    high", " very high"};
+static const char* const opts_arousal[][11] = {"  very low", "    low", "  average", "    high", " very high"};
 static const char* const opts_yes[][11] = {"     no", "    yes"};
 
 
