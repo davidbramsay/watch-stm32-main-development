@@ -115,6 +115,7 @@ typedef struct {
 	Survey_t surveyState; //protected by surveyMutex
 	uint8_t currentInterval; //current interval to wait for
 	uint8_t paused; //can stop all ESM from phone; turned off by default
+	uint8_t demo; //whether we're in demo mode, flash the LEDs
 } GlobalState_t;
 
 char errorCondition[13];

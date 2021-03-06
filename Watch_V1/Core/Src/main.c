@@ -806,6 +806,7 @@ static void GlobalState_Init(){
 
 	GlobalState.currentInterval = 0;
 	GlobalState.paused = 0;
+	GlobalState.demo = 0;
 }
 
 static void updateInterval(){
@@ -1747,6 +1748,7 @@ void startButtonPress(void *argument)
 			  osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
 			  GlobalState.paused = 0;
+			  GlobalState.demo = 0;
 
 			  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 			  GlobalState.programMode = MODE_CANCEL;
@@ -1764,6 +1766,7 @@ void startButtonPress(void *argument)
 		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
 		    	GlobalState.paused = 0;
+		    	GlobalState.demo = 0;
 
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
@@ -1780,11 +1783,17 @@ void startButtonPress(void *argument)
 		    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
 		    	GlobalState.paused = 0;
+		    	GlobalState.demo = 0;
 
 		    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		    	GlobalState.programMode = MODE_CANCEL;
 		        osMutexRelease(modeMutexHandle);
 
+		        if (!buttonState[0]){
+		        	//if the first button is pressed AND we've pressed this button, demo mode
+		        	GlobalState.demo = 1;
+		        	xTaskNotifyGive(alertHandle);
+		        }
 		    }
 		}
 
@@ -1823,12 +1832,14 @@ void startAlert(void *argument)
   ds_clear();  //turn off
   ds_show();
 
-  const uint8_t MAX_BRIGHTNESS = 0x33; //max brightness, 0x01-0xFF
+  const uint8_t MAX_BRIGHTNESS = 0xAA; //max brightness, 0x01-0xFF
 
   ds_setBrightness(0);
   osDelay(1000);
 
   uint16_t counter;
+  uint32_t color;
+  uint8_t r,g,b;
   uint8_t LEDDirection, LEDBrightness;
 
   /* Infinite loop */
@@ -1873,6 +1884,40 @@ void startAlert(void *argument)
     //stop vibration
     HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 
+    //if we're in demo mode, flash some LEDs
+    if (GlobalState.demo){
+
+    	counter = 0;
+    	r = 0xFF;
+    	g = 0xFF;
+    	b = 0xFF;
+
+    	ds_setBrightness(MAX_BRIGHTNESS);
+    	while(GlobalState.demo) {
+
+    		for (int i=0; i< NUM_PIXELS; i++){
+
+    			if      (i==(counter+2)%12)	{ color = (r  <<16) | (g  <<8) | b; }
+    			else if (i==(counter+1)%12) { color = (r/2<<16) | (g/2<<8) | b/2; }
+    			else if (i==counter)        { color = (r/4<<16) | (g/4<<8) | b/4; }
+    			else 						{ color = 0x000000; }
+
+    			ds_setPixelColor32B(i, color); // 'off' pixel at head
+    		}
+
+    		ds_show();
+    		r = (r + 11) % 0xFF;
+    		g = (g + 13) % 0xFF;
+    		b = (b + 17) % 0xFF;
+    		counter = (counter+1)%12;
+    		osDelay(pdMS_TO_TICKS(50));
+    	}
+
+    	//turn off LEDs
+		ds_setBrightness(0);
+		ds_fill(0x000000, 0, 12);
+		ds_show();
+    }
 
   }
   /* USER CODE END startAlert */
