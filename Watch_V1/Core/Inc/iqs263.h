@@ -14,7 +14,7 @@ extern I2C_HandleTypeDef hi2c1;
 
 #define ANGLE_OFFSET 353
 
-#define IQS_TOUCH_THRESH 10 //touch sensitivity threshold (20)
+#define IQS_TOUCH_THRESH 5 //touch sensitivity threshold (10/20), larger is more
 
 static const int MAP_ANGLE_REAL[] = {0, 45, 90, 135, 180, 225, 270, 315, 360};
 //static const int MAP_ANGLE_MEASURED[] = {0, 40, 103, 136, 179, 233, 272, 312, 360};

@@ -1385,6 +1385,8 @@ void startESMMain(void *argument)
     	    	keep_alerting = 0;
     	    	continue_flag = 0;
     	    }
+
+    	    osDelay(10);
         }
 
     	//SECOND SCREEN FOR ESM - FOCUS
