@@ -775,8 +775,8 @@ static void MX_GPIO_Init(void)
 static void GlobalState_Init(){
 	GlobalState.timeBound.startHR_BCD = 0x10; //10AM, BCD
 	GlobalState.timeBound.endHR_BCD = 0x22;   //10PM, BCD
-	GlobalState.timeBound.minInterval = 5;   //15min min interval
-	GlobalState.timeBound.maxInterval = 10;   //90min max interval
+	GlobalState.timeBound.minInterval = INTERVAL_MIN;   //15min min interval
+	GlobalState.timeBound.maxInterval = INTERVAL_MAX;   //90min max interval
 
 	RTC_TimeTypeDef tempTime;
 	RTC_DateTypeDef tempDate;
@@ -786,6 +786,9 @@ static void GlobalState_Init(){
 	//shallow structs so no issues with assignment
 	GlobalState.lastSeenTime.time = tempTime;
 	GlobalState.lastSeenTime.date = tempDate;
+
+	GlobalState.lastSurveyTime.time = tempTime;
+	GlobalState.lastSurveyTime.date = tempDate;
 
 	//GlobalState.timeEstimateSample.time = tempTime;
 	//GlobalState.timeEstimateSample.date = tempDate;
@@ -844,6 +847,20 @@ HAL_StatusTypeDef updateLastSeenTime(){
     return status_1 | status_2;
 
 }
+
+HAL_StatusTypeDef updateLastSurveyTime(){
+
+	HAL_StatusTypeDef status_1, status_2;
+
+    osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+    status_1 = HAL_RTC_GetTime(&hrtc, &(GlobalState.lastSurveyTime.time), RTC_FORMAT_BCD);
+    status_2 = HAL_RTC_GetDate(&hrtc, &(GlobalState.lastSurveyTime.date), RTC_FORMAT_BCD);
+    osMutexRelease(lastSeenMutexHandle);
+
+    return status_1 | status_2;
+
+}
+
 
 void get_RTC_hrmin(char *dest) {
 
@@ -1066,10 +1083,6 @@ void startUIControl(void *argument)
   	   }
 
 
-  	   //optional
-  	   osDelay(25);
-
-
      } else if (touch_end_count > 0){
 
   	   touch_end_count += 1;//increment touching_end_count
@@ -1127,7 +1140,7 @@ void startUIControl(void *argument)
 
   	   }
 
-  	   osDelay(25);
+  	   osDelay(50);
 
 
      }else { //no touch, wait for a touch
@@ -1305,6 +1318,9 @@ void startESMMain(void *argument)
   RTC_TimeTypeDef cTime;
   RTC_DateTypeDef cDate;
 
+  uint8_t last_hrs, last_min;
+  uint32_t last_date;
+
   /* Infinite loop */
   for(;;)
   {
@@ -1325,11 +1341,23 @@ void startESMMain(void *argument)
     uint32_t curr_date = (cDate.Year << 16) | (cDate.Month << 8) | cDate.Date;
 
     //Grab last seen time hrs/min and date
-    uint8_t last_hrs = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Hours);
-    uint8_t last_min = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Minutes);
-    uint32_t last_date = (GlobalState.lastSeenTime.date.Year << 16) |
-    					 (GlobalState.lastSeenTime.date.Month << 8) |
-						  GlobalState.lastSeenTime.date.Date;
+
+    if (ESM_SEPARATE_TIME_ESTIMATE){
+
+    	last_hrs = RTC_Bcd2ToByte(GlobalState.lastSurveyTime.time.Hours);
+		last_min = RTC_Bcd2ToByte(GlobalState.lastSurveyTime.time.Minutes);
+		last_date = (GlobalState.lastSurveyTime.date.Year << 16) |
+					(GlobalState.lastSurveyTime.date.Month << 8) |
+					 GlobalState.lastSurveyTime.date.Date;
+
+    } else {
+
+    	last_hrs = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Hours);
+    	last_min = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Minutes);
+    	last_date = (GlobalState.lastSeenTime.date.Year << 16) |
+    	    		(GlobalState.lastSeenTime.date.Month << 8) |
+    				 GlobalState.lastSeenTime.date.Date;
+    }
 
     uint8_t sameDayFlag = 1;
 
@@ -1585,7 +1613,7 @@ void startESMMain(void *argument)
 				osMutexRelease(modeMutexHandle);
 			}
 		}
-
+		/*
 		//EIGHTH SCREEN FOR ESM - EXERCISE
 		if (continue_flag){
 			//(2) Wait for notification from UI thread that indicates confirmed input
@@ -1650,6 +1678,101 @@ void startESMMain(void *argument)
 			}
 		}
 
+		//TENTH SCREEN FOR ESM - LOCATION
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_ESM_SURVEY){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//set up next interaction
+				//set up survey
+				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+				strncpy(GlobalState.surveyState.screenText, " LOCATION?", strlen(" LOCATION?") + 1);
+				GlobalState.surveyState.screenTextLength = strlen(" LOCATION?");
+				GlobalState.surveyState.surveyID = SURVEY_LOCATE;
+				memcpy(GlobalState.surveyState.optionArray, opts_location, sizeof(opts_location));
+				GlobalState.surveyState.optionArrayLength = 2;
+				osMutexRelease(surveyMutexHandle);
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
+		*/
+		//ELEVENTH SCREEN FOR ESM - THERMAL SENSATION
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_ESM_SURVEY){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//set up next interaction
+				//set up survey
+				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+				strncpy(GlobalState.surveyState.screenText, " SENSATION?", strlen(" SENSATION?") + 1);
+				GlobalState.surveyState.screenTextLength = strlen(" SENSATION?");
+				GlobalState.surveyState.surveyID = SURVEY_TSENSE;
+				memcpy(GlobalState.surveyState.optionArray, opts_thermalsense, sizeof(opts_thermalsense));
+				GlobalState.surveyState.optionArrayLength = 7;
+				osMutexRelease(surveyMutexHandle);
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
+
+		//TWELFTH SCREEN FOR ESM - THERMAL PREF
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_ESM_SURVEY){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//set up next interaction
+				//set up survey
+				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+				strncpy(GlobalState.surveyState.screenText, "TEMP PREFER?", strlen("TEMP PREFER?") + 1);
+				GlobalState.surveyState.screenTextLength = strlen("TEMP PREFER?");
+				GlobalState.surveyState.surveyID = SURVEY_TCOMFORT;
+				memcpy(GlobalState.surveyState.optionArray, opts_thermalcomfort, sizeof(opts_thermalcomfort));
+				GlobalState.surveyState.optionArrayLength = 3;
+				osMutexRelease(surveyMutexHandle);
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
 
 		//FINISH ESM; SHOW TIME
 		if (continue_flag){
@@ -1679,6 +1802,8 @@ void startESMMain(void *argument)
 				osMutexRelease(modeMutexHandle);
 			}
 		}
+
+		updateLastSurveyTime();
 
     } else {//not time for a survey
 

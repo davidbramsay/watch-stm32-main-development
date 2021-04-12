@@ -55,6 +55,14 @@ void Error_Handler(void);
 #define SURVEY_CAFFEINE 0x6 //drink caffeine in last interval?
 #define SURVEY_EXERCISE 0x7 //exercise in last interval? heavy light no
 #define SURVEY_STRESS   0x8 //stress during last interval
+#define SURVEY_LOCATE   0x9 //location
+#define SURVEY_TSENSE   0xA //thermal sensation
+#define SURVEY_TCOMFORT 0xB //thermal comfort
+
+#define INTERVAL_MIN 45 //min interval in min
+#define INTERVAL_MAX 75 //max interval in min
+
+#define ESM_SEPARATE_TIME_ESTIMATE 1 //if 0, ESM clock resets anytime the time is viewed; otherwise it's separate
 
 //settings for when to randomly ESM
 typedef struct {
@@ -104,11 +112,14 @@ static const char* const opts_agree[][11] = {"  disagree", "    agree"};
 static const char* const opts_valence[][11] = {"vry negative", "  negative", "  neutral", "  positive", "vry positive"};
 static const char* const opts_arousal[][11] = {"  very low", "    low", "  average", "    high", " very high"};
 static const char* const opts_yes[][11] = {"     no", "    yes"};
-
+static const char* const opts_location[][11] = {"   indoor", "  outdoor"};
+static const char* const opts_thermalsense[][11] = {"    cold", "    cool","slghtly cool","   neutral","slghtly warm","    warm","     hot",};
+static const char* const opts_thermalcomfort[][11] = {"   cooler", " no change", "   warmer"};
 
 typedef struct {
 	ESMTimeBounds_t timeBound; //protected by timeBoundMutex
 	TimeStruct_t lastSeenTime;  //protected by lastSeenMutex
+	TimeStruct_t lastSurveyTime; //also protected by lastSeenMutex
 	//TimeStruct_t timeEstimateSample; //protected by timeEstimateMutex
 	ConditionSample_t lastConditions; //protected by conditionMutex
 	ProgramMode_t programMode; //protected by modeMutex
@@ -150,8 +161,8 @@ typedef struct {
 
 typedef UnsentQueue_t *UnsentQueueAddress_t;
 
-#define TOUCH_HISTORY_SIZE 10 //size of touch history used for smoothing
-#define TOUCH_END_TIMEOUT 75 //loops of 25ms before timeout
+#define TOUCH_HISTORY_SIZE 20 //size of touch history used for smoothing
+#define TOUCH_END_TIMEOUT 40 //loops of 5ms before timeout
 #define ALERT_TIMEOUT 6000 //timeout in in MS before rebuzzing ESM if ignored
 #define INTERACTION_TIMEOUT 45000 //ms timeout in MS for each question before assume abandoned
 //make alert timeout variable so it doesn't help with time estimation

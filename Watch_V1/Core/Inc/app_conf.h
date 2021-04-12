@@ -144,7 +144,7 @@
 #define P2P_SERVER5    0
 #define P2P_SERVER6    0
 
-#define CFG_DEV_ID_P2P_SERVER1                  (0x83)
+#define CFG_DEV_ID_P2P_SERVER1                  (0x8B)
 #define CFG_DEV_ID_P2P_SERVER2                  (0x84)
 #define CFG_DEV_ID_P2P_SERVER3                  (0x87)
 #define CFG_DEV_ID_P2P_SERVER4                  (0x88)

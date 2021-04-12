@@ -69,8 +69,8 @@ all: main-build
 main-build: Watch_V1.elf secondary-outputs
 
 # Tool invocations
-Watch_V1.elf: $(OBJS) $(USER_OBJS) Z:\Documents\WB_freertos_ble_integration_test\Watch_V1\STM32CubeIDE\STM32WB55RGVX_FLASH.ld
-	arm-none-eabi-gcc -o "Watch_V1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"Z:\Documents\WB_freertos_ble_integration_test\Watch_V1\STM32CubeIDE\STM32WB55RGVX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Watch_V1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Watch_V1.elf: $(OBJS) $(USER_OBJS) /Users/davidramsay/watch-stm32-main-development/Watch_V1/STM32CubeIDE/STM32WB55RGVX_FLASH.ld
+	arm-none-eabi-gcc -o "Watch_V1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/davidramsay/watch-stm32-main-development/Watch_V1/STM32CubeIDE/STM32WB55RGVX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Watch_V1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

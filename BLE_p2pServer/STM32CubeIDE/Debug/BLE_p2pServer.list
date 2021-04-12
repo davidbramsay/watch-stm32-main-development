@@ -47,13 +47,13 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING
  21 .debug_macro  0002d8c5  00000000  00000000  00065590  2**0
                   CONTENTS, READONLY, DEBUGGING
- 22 .debug_line   000248f2  00000000  00000000  00092e55  2**0
+ 22 .debug_line   0002547a  00000000  00000000  00092e55  2**0
                   CONTENTS, READONLY, DEBUGGING
- 23 .debug_str    000f76a1  00000000  00000000  000b7747  2**0
+ 23 .debug_str    000f77bb  00000000  00000000  000b82cf  2**0
                   CONTENTS, READONLY, DEBUGGING
- 24 .comment      0000007b  00000000  00000000  001aede8  2**0
+ 24 .comment      0000007b  00000000  00000000  001afa8a  2**0
                   CONTENTS, READONLY
- 25 .debug_frame  0000a918  00000000  00000000  001aee64  2**2
+ 25 .debug_frame  0000a918  00000000  00000000  001afb08  2**2
                   CONTENTS, READONLY, DEBUGGING
 
 Disassembly of section .text:
@@ -162,8 +162,8 @@ Disassembly of section .text:
  8000236:	bf08      	it	eq
  8000238:	2800      	cmpeq	r0, #0
  800023a:	bf1c      	itt	ne
- 800023c:	f04f 31ff 	movne.w	r1, #4294967295
- 8000240:	f04f 30ff 	movne.w	r0, #4294967295
+ 800023c:	f04f 31ff 	movne.w	r1, #4294967295	; 0xffffffff
+ 8000240:	f04f 30ff 	movne.w	r0, #4294967295	; 0xffffffff
  8000244:	f000 b972 	b.w	800052c <__aeabi_idiv0>
  8000248:	f1ad 0c08 	sub.w	ip, sp, #8
  800024c:	e96d ce04 	strd	ip, lr, [sp, #-16]!
@@ -201,7 +201,7 @@ Disassembly of section .text:
  80002a8:	4299      	cmp	r1, r3
  80002aa:	d909      	bls.n	80002c0 <__udivmoddi4+0x60>
  80002ac:	18eb      	adds	r3, r5, r3
- 80002ae:	f107 30ff 	add.w	r0, r7, #4294967295
+ 80002ae:	f107 30ff 	add.w	r0, r7, #4294967295	; 0xffffffff
  80002b2:	f080 811b 	bcs.w	80004ec <__udivmoddi4+0x28c>
  80002b6:	4299      	cmp	r1, r3
  80002b8:	f240 8118 	bls.w	80004ec <__udivmoddi4+0x28c>
@@ -216,7 +216,7 @@ Disassembly of section .text:
  80002d4:	45a4      	cmp	ip, r4
  80002d6:	d909      	bls.n	80002ec <__udivmoddi4+0x8c>
  80002d8:	192c      	adds	r4, r5, r4
- 80002da:	f100 33ff 	add.w	r3, r0, #4294967295
+ 80002da:	f100 33ff 	add.w	r3, r0, #4294967295	; 0xffffffff
  80002de:	f080 8107 	bcs.w	80004f0 <__udivmoddi4+0x290>
  80002e2:	45a4      	cmp	ip, r4
  80002e4:	f240 8104 	bls.w	80004f0 <__udivmoddi4+0x290>
@@ -272,7 +272,7 @@ Disassembly of section .text:
  8000370:	4299      	cmp	r1, r3
  8000372:	d907      	bls.n	8000384 <__udivmoddi4+0x124>
  8000374:	18eb      	adds	r3, r5, r3
- 8000376:	f10c 30ff 	add.w	r0, ip, #4294967295
+ 8000376:	f10c 30ff 	add.w	r0, ip, #4294967295	; 0xffffffff
  800037a:	d202      	bcs.n	8000382 <__udivmoddi4+0x122>
  800037c:	4299      	cmp	r1, r3
  800037e:	f200 80cd 	bhi.w	800051c <__udivmoddi4+0x2bc>
@@ -286,7 +286,7 @@ Disassembly of section .text:
  8000398:	45a0      	cmp	r8, r4
  800039a:	d907      	bls.n	80003ac <__udivmoddi4+0x14c>
  800039c:	192c      	adds	r4, r5, r4
- 800039e:	f100 33ff 	add.w	r3, r0, #4294967295
+ 800039e:	f100 33ff 	add.w	r3, r0, #4294967295	; 0xffffffff
  80003a2:	d202      	bcs.n	80003aa <__udivmoddi4+0x14a>
  80003a4:	45a0      	cmp	r8, r4
  80003a6:	f200 80b6 	bhi.w	8000516 <__udivmoddi4+0x2b6>
@@ -314,7 +314,7 @@ Disassembly of section .text:
  80003f2:	fa00 f107 	lsl.w	r1, r0, r7
  80003f6:	d90b      	bls.n	8000410 <__udivmoddi4+0x1b0>
  80003f8:	eb1e 0303 	adds.w	r3, lr, r3
- 80003fc:	f109 30ff 	add.w	r0, r9, #4294967295
+ 80003fc:	f109 30ff 	add.w	r0, r9, #4294967295	; 0xffffffff
  8000400:	f080 8087 	bcs.w	8000512 <__udivmoddi4+0x2b2>
  8000404:	429c      	cmp	r4, r3
  8000406:	f240 8084 	bls.w	8000512 <__udivmoddi4+0x2b2>
@@ -329,7 +329,7 @@ Disassembly of section .text:
  8000424:	45a2      	cmp	sl, r4
  8000426:	d908      	bls.n	800043a <__udivmoddi4+0x1da>
  8000428:	eb1e 0404 	adds.w	r4, lr, r4
- 800042c:	f100 33ff 	add.w	r3, r0, #4294967295
+ 800042c:	f100 33ff 	add.w	r3, r0, #4294967295	; 0xffffffff
  8000430:	d26b      	bcs.n	800050a <__udivmoddi4+0x2aa>
  8000432:	45a2      	cmp	sl, r4
  8000434:	d969      	bls.n	800050a <__udivmoddi4+0x2aa>
@@ -371,7 +371,7 @@ Disassembly of section .text:
  80004a0:	fa04 f402 	lsl.w	r4, r4, r2
  80004a4:	d907      	bls.n	80004b6 <__udivmoddi4+0x256>
  80004a6:	1869      	adds	r1, r5, r1
- 80004a8:	f107 3cff 	add.w	ip, r7, #4294967295
+ 80004a8:	f107 3cff 	add.w	ip, r7, #4294967295	; 0xffffffff
  80004ac:	d22f      	bcs.n	800050e <__udivmoddi4+0x2ae>
  80004ae:	428b      	cmp	r3, r1
  80004b0:	d92d      	bls.n	800050e <__udivmoddi4+0x2ae>
@@ -386,7 +386,7 @@ Disassembly of section .text:
  80004ca:	428b      	cmp	r3, r1
  80004cc:	d907      	bls.n	80004de <__udivmoddi4+0x27e>
  80004ce:	1869      	adds	r1, r5, r1
- 80004d0:	f100 3cff 	add.w	ip, r0, #4294967295
+ 80004d0:	f100 3cff 	add.w	ip, r0, #4294967295	; 0xffffffff
  80004d4:	d217      	bcs.n	8000506 <__udivmoddi4+0x2a6>
  80004d6:	428b      	cmp	r3, r1
  80004d8:	d915      	bls.n	8000506 <__udivmoddi4+0x2a6>
@@ -1243,7 +1243,7 @@ void UTIL_SEQ_EvtIdle( UTIL_SEQ_bm_t task_id_bm, UTIL_SEQ_bm_t evt_waited_bm )
  800092a:	6078      	str	r0, [r7, #4]
  800092c:	6039      	str	r1, [r7, #0]
   UTIL_SEQ_Run( UTIL_SEQ_DEFAULT );
- 800092e:	f04f 30ff 	mov.w	r0, #4294967295
+ 800092e:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  8000932:	f009 fbf3 	bl	800a11c <UTIL_SEQ_Run>
 }
  8000936:	bf00      	nop
@@ -1718,7 +1718,7 @@ static uint16_t linkTimer(uint8_t TimerID)
 
     SSRValueOnLastSetup = SSR_FORBIDDEN_VALUE;
  8000bc8:	4b45      	ldr	r3, [pc, #276]	; (8000ce0 <linkTimer+0x150>)
- 8000bca:	f04f 32ff 	mov.w	r2, #4294967295
+ 8000bca:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  8000bce:	601a      	str	r2, [r3, #0]
     time_elapsed = 0;
  8000bd0:	2300      	movs	r3, #0
@@ -2046,7 +2046,7 @@ static void UnlinkTimer(uint8_t TimerID, RequestReadSSR_t RequestReadSSR)
   {
     SSRValueOnLastSetup = SSR_FORBIDDEN_VALUE;
  8000dc6:	4b08      	ldr	r3, [pc, #32]	; (8000de8 <UnlinkTimer+0x104>)
- 8000dc8:	f04f 32ff 	mov.w	r2, #4294967295
+ 8000dc8:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  8000dcc:	601a      	str	r2, [r3, #0]
   }
 
@@ -2079,7 +2079,7 @@ static uint16_t ReturnTimeElapsed(void)
   if(SSRValueOnLastSetup != SSR_FORBIDDEN_VALUE)
  8000df2:	4b1a      	ldr	r3, [pc, #104]	; (8000e5c <ReturnTimeElapsed+0x70>)
  8000df4:	681b      	ldr	r3, [r3, #0]
- 8000df6:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 8000df6:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  8000dfa:	d026      	beq.n	8000e4a <ReturnTimeElapsed+0x5e>
   {
     return_value = ReadRtcSsrValue(); /**< Read SSR register first */
@@ -2958,7 +2958,7 @@ void HW_TS_Init(HW_TS_InitMode_t TimerInitMode, RTC_HandleTypeDef *hrtc)
  80012e8:	701a      	strb	r2, [r3, #0]
     SSRValueOnLastSetup = SSR_FORBIDDEN_VALUE;
  80012ea:	4b35      	ldr	r3, [pc, #212]	; (80013c0 <HW_TS_Init+0x1bc>)
- 80012ec:	f04f 32ff 	mov.w	r2, #4294967295
+ 80012ec:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  80012f0:	601a      	str	r2, [r3, #0]
 
     /**
@@ -4421,7 +4421,7 @@ int main(void)
 	while(1)
 	{
 		UTIL_SEQ_Run( UTIL_SEQ_DEFAULT );
- 8001b70:	f04f 30ff 	mov.w	r0, #4294967295
+ 8001b70:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  8001b74:	f008 fad2 	bl	800a11c <UTIL_SEQ_Run>
  8001b78:	e7fa      	b.n	8001b70 <main+0x38>
  8001b7a:	bf00      	nop
@@ -5071,7 +5071,7 @@ static void Init_Exti( void )
  8001ea4:	af00      	add	r7, sp, #0
   /**< Disable all wakeup interrupt on CPU1  except IPCC(36), HSEM(38) */
   LL_EXTI_DisableIT_0_31(~0);
- 8001ea6:	f04f 30ff 	mov.w	r0, #4294967295
+ 8001ea6:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  8001eaa:	f7ff fcaf 	bl	800180c <LL_EXTI_DisableIT_0_31>
   LL_EXTI_DisableIT_32_63( (~0) & (~(LL_EXTI_LINE_36 | LL_EXTI_LINE_38)) );
  8001eae:	f06f 0050 	mvn.w	r0, #80	; 0x50
@@ -5103,7 +5103,7 @@ void HAL_Delay(uint32_t Delay)
   /* Add a freq to guarantee minimum wait */
   if (wait < HAL_MAX_DELAY)
  8001ecc:	68fb      	ldr	r3, [r7, #12]
- 8001ece:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 8001ece:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  8001ed2:	d00a      	beq.n	8001eea <HAL_Delay+0x30>
   {
     wait += HAL_GetTickFreq();
@@ -6152,7 +6152,7 @@ int _close(int file)
  80023da:	af00      	add	r7, sp, #0
  80023dc:	6078      	str	r0, [r7, #4]
 	return -1;
- 80023de:	f04f 33ff 	mov.w	r3, #4294967295
+ 80023de:	f04f 33ff 	mov.w	r3, #4294967295	; 0xffffffff
 }
  80023e2:	4618      	mov	r0, r3
  80023e4:	370c      	adds	r7, #12
@@ -6273,7 +6273,7 @@ void *_sbrk(ptrdiff_t incr)
  8002476:	230c      	movs	r3, #12
  8002478:	6013      	str	r3, [r2, #0]
     return (void *)-1;
- 800247a:	f04f 33ff 	mov.w	r3, #4294967295
+ 800247a:	f04f 33ff 	mov.w	r3, #4294967295	; 0xffffffff
  800247e:	e009      	b.n	8002494 <_sbrk+0x54>
   }
 
@@ -7602,7 +7602,7 @@ const uint8_t* BleGetBdAddress( void )
 
   if(udn != 0xFFFFFFFF)
  8002c78:	693b      	ldr	r3, [r7, #16]
- 8002c7a:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 8002c7a:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  8002c7e:	d023      	beq.n	8002cc8 <BleGetBdAddress+0x5c>
   {
     company_id = LL_FLASH_GetSTCompanyID();
@@ -9942,7 +9942,7 @@ __weak HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
         HAL_NVIC_SetPriority(SysTick_IRQn, TickPriority, 0U);
  8003992:	2200      	movs	r2, #0
  8003994:	6879      	ldr	r1, [r7, #4]
- 8003996:	f04f 30ff 	mov.w	r0, #4294967295
+ 8003996:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800399a:	f000 f992 	bl	8003cc2 <HAL_NVIC_SetPriority>
         uwTickPrio = TickPriority;
  800399e:	4a09      	ldr	r2, [pc, #36]	; (80039c4 <HAL_InitTick+0x70>)
@@ -10418,7 +10418,7 @@ __STATIC_INLINE uint32_t NVIC_EncodePriority (uint32_t PriorityGroup, uint32_t P
 
   return (
            ((PreemptPriority & (uint32_t)((1UL << (PreemptPriorityBits)) - 1UL)) << SubPriorityBits) |
- 8003c34:	f04f 32ff 	mov.w	r2, #4294967295
+ 8003c34:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  8003c38:	69bb      	ldr	r3, [r7, #24]
  8003c3a:	fa02 f303 	lsl.w	r3, r2, r3
  8003c3e:	43da      	mvns	r2, r3
@@ -10427,7 +10427,7 @@ __STATIC_INLINE uint32_t NVIC_EncodePriority (uint32_t PriorityGroup, uint32_t P
  8003c44:	697b      	ldr	r3, [r7, #20]
  8003c46:	409a      	lsls	r2, r3
            ((SubPriority     & (uint32_t)((1UL << (SubPriorityBits    )) - 1UL)))
- 8003c48:	f04f 31ff 	mov.w	r1, #4294967295
+ 8003c48:	f04f 31ff 	mov.w	r1, #4294967295	; 0xffffffff
  8003c4c:	697b      	ldr	r3, [r7, #20]
  8003c4e:	fa01 f303 	lsl.w	r3, r1, r3
  8003c52:	43d9      	mvns	r1, r3
@@ -10473,7 +10473,7 @@ __STATIC_INLINE uint32_t SysTick_Config(uint32_t ticks)
  8003c84:	6053      	str	r3, [r2, #4]
   NVIC_SetPriority (SysTick_IRQn, (1UL << __NVIC_PRIO_BITS) - 1UL); /* set Priority for Systick Interrupt */
  8003c86:	210f      	movs	r1, #15
- 8003c88:	f04f 30ff 	mov.w	r0, #4294967295
+ 8003c88:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  8003c8c:	f7ff ff8e 	bl	8003bac <__NVIC_SetPriority>
   SysTick->VAL   = 0UL;                                             /* Load the SysTick Counter Value */
  8003c90:	4b05      	ldr	r3, [pc, #20]	; (8003ca8 <SysTick_Config+0x40>)
@@ -17458,7 +17458,7 @@ HAL_StatusTypeDef RTC_EnterInitMode(RTC_HandleTypeDef* hrtc)
     hrtc->Instance->ISR = (uint32_t)RTC_INIT_MASK;
  8006498:	687b      	ldr	r3, [r7, #4]
  800649a:	681b      	ldr	r3, [r3, #0]
- 800649c:	f04f 32ff 	mov.w	r2, #4294967295
+ 800649c:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  80064a0:	60da      	str	r2, [r3, #12]
 
     tickstart = HAL_GetTick();
@@ -19466,7 +19466,7 @@ HAL_StatusTypeDef UART_WaitOnFlagUntilTimeout(UART_HandleTypeDef *huart, uint32_
     /* Check for the Timeout */
     if (Timeout != HAL_MAX_DELAY)
  800704e:	69bb      	ldr	r3, [r7, #24]
- 8007050:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 8007050:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  8007054:	d05e      	beq.n	8007114 <UART_WaitOnFlagUntilTimeout+0xd8>
     {
       if (((HAL_GetTick() - Tickstart) > Timeout) || (Timeout == 0U))
@@ -22788,7 +22788,7 @@ size_t DbgTraceWrite(int handle, const unsigned char * buf, size_t bufSize)
   /* Ignore flushes */
   if ( handle == -1 )
  8008722:	68fb      	ldr	r3, [r7, #12]
- 8008724:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 8008724:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  8008728:	d102      	bne.n	8008730 <DbgTraceWrite+0x28>
   {
     chars_written = ( size_t ) 0;
@@ -22806,7 +22806,7 @@ size_t DbgTraceWrite(int handle, const unsigned char * buf, size_t bufSize)
  800873a:	d003      	beq.n	8008744 <DbgTraceWrite+0x3c>
   {
     chars_written = ( size_t ) - 1;
- 800873c:	f04f 33ff 	mov.w	r3, #4294967295
+ 800873c:	f04f 33ff 	mov.w	r3, #4294967295	; 0xffffffff
  8008740:	627b      	str	r3, [r7, #36]	; 0x24
  8008742:	e02a      	b.n	800879a <DbgTraceWrite+0x92>
   }
@@ -24831,7 +24831,7 @@ int CircularQueue_Init(queue_t *q, uint8_t* queueBuffer, uint32_t queueSize, uin
    {
     /* can not deal with splitting at the end of buffer with fixed size element */
     return -1;
- 800923c:	f04f 33ff 	mov.w	r3, #4294967295
+ 800923c:	f04f 33ff 	mov.w	r3, #4294967295	; 0xffffffff
  8009240:	e000      	b.n	8009244 <CircularQueue_Init+0x58>
   }
   return 0;
@@ -27595,7 +27595,7 @@ void UTIL_SEQ_Run( UTIL_SEQ_bm_t Mask_bm )
  800a186:	6afb      	ldr	r3, [r7, #44]	; 0x2c
  800a188:	00db      	lsls	r3, r3, #3
  800a18a:	4413      	add	r3, r2
- 800a18c:	f04f 32ff 	mov.w	r2, #4294967295
+ 800a18c:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  800a190:	605a      	str	r2, [r3, #4]
 
     /** Read the flag index of the task to be executed
@@ -27722,7 +27722,7 @@ void UTIL_SEQ_Run( UTIL_SEQ_bm_t Mask_bm )
   /* the set of CurrentTaskIdx to no task running allows to call WaitEvt in the Pre/Post ilde context */
   CurrentTaskIdx = UTIL_SEQ_NOTASKRUNNING;
  800a260:	4b19      	ldr	r3, [pc, #100]	; (800a2c8 <UTIL_SEQ_Run+0x1ac>)
- 800a262:	f04f 32ff 	mov.w	r2, #4294967295
+ 800a262:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  800a266:	601a      	str	r2, [r3, #0]
   UTIL_SEQ_PreIdle( );
  800a268:	f000 f91e 	bl	800a4a8 <UTIL_SEQ_PreIdle>
@@ -28045,7 +28045,7 @@ void UTIL_SEQ_WaitEvt(UTIL_SEQ_bm_t EvtId_bm)
   if(UTIL_SEQ_NOTASKRUNNING == CurrentTaskIdx)
  800a432:	4b1a      	ldr	r3, [pc, #104]	; (800a49c <UTIL_SEQ_WaitEvt+0x78>)
  800a434:	681b      	ldr	r3, [r3, #0]
- 800a436:	f1b3 3fff 	cmp.w	r3, #4294967295
+ 800a436:	f1b3 3fff 	cmp.w	r3, #4294967295	; 0xffffffff
  800a43a:	d102      	bne.n	800a442 <UTIL_SEQ_WaitEvt+0x1e>
   {
     wait_task_idx = 0;
@@ -28369,7 +28369,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800a64e:	f000 f87f 	bl	800a750 <__swsetup_r>
  800a652:	2800      	cmp	r0, #0
  800a654:	d0dd      	beq.n	800a612 <_puts_r+0x2e>
- 800a656:	f04f 30ff 	mov.w	r0, #4294967295
+ 800a656:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800a65a:	bd70      	pop	{r4, r5, r6, pc}
  800a65c:	2b00      	cmp	r3, #0
  800a65e:	da04      	bge.n	800a66a <_puts_r+0x86>
@@ -28476,7 +28476,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800a732:	f000 f80d 	bl	800a750 <__swsetup_r>
  800a736:	2800      	cmp	r0, #0
  800a738:	d0cc      	beq.n	800a6d4 <__swbuf_r+0x28>
- 800a73a:	f04f 37ff 	mov.w	r7, #4294967295
+ 800a73a:	f04f 37ff 	mov.w	r7, #4294967295	; 0xffffffff
  800a73e:	4638      	mov	r0, r7
  800a740:	bdf8      	pop	{r3, r4, r5, r6, r7, pc}
  800a742:	bf00      	nop
@@ -28509,7 +28509,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800a77e:	6032      	str	r2, [r6, #0]
  800a780:	f043 0340 	orr.w	r3, r3, #64	; 0x40
  800a784:	81a3      	strh	r3, [r4, #12]
- 800a786:	f04f 30ff 	mov.w	r0, #4294967295
+ 800a786:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800a78a:	e03e      	b.n	800a80a <__swsetup_r+0xba>
  800a78c:	4b25      	ldr	r3, [pc, #148]	; (800a824 <__swsetup_r+0xd4>)
  800a78e:	429c      	cmp	r4, r3
@@ -28694,7 +28694,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800a91c:	89a3      	ldrh	r3, [r4, #12]
  800a91e:	f043 0340 	orr.w	r3, r3, #64	; 0x40
  800a922:	81a3      	strh	r3, [r4, #12]
- 800a924:	f04f 30ff 	mov.w	r0, #4294967295
+ 800a924:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800a928:	e78e      	b.n	800a848 <__sflush_r+0x1c>
  800a92a:	4407      	add	r7, r0
  800a92c:	eba8 0800 	sub.w	r8, r8, r0
@@ -29246,7 +29246,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800adfe:	2b00      	cmp	r3, #0
  800ae00:	f000 80ba 	beq.w	800af78 <_vfiprintf_r+0x1ec>
  800ae04:	2300      	movs	r3, #0
- 800ae06:	f04f 32ff 	mov.w	r2, #4294967295
+ 800ae06:	f04f 32ff 	mov.w	r2, #4294967295	; 0xffffffff
  800ae0a:	e9cd 2305 	strd	r2, r3, [sp, #20]
  800ae0e:	9304      	str	r3, [sp, #16]
  800ae10:	9307      	str	r3, [sp, #28]
@@ -29296,7 +29296,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800ae74:	f7ff fc6c 	bl	800a750 <__swsetup_r>
  800ae78:	2800      	cmp	r0, #0
  800ae7a:	d09d      	beq.n	800adb8 <_vfiprintf_r+0x2c>
- 800ae7c:	f04f 30ff 	mov.w	r0, #4294967295
+ 800ae7c:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800ae80:	b01d      	add	sp, #116	; 0x74
  800ae82:	e8bd 8ff0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, r9, sl, fp, pc}
  800ae86:	46a8      	mov	r8, r5
@@ -29332,7 +29332,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800aeca:	9203      	str	r2, [sp, #12]
  800aecc:	2b00      	cmp	r3, #0
  800aece:	bfb8      	it	lt
- 800aed0:	f04f 33ff 	movlt.w	r3, #4294967295
+ 800aed0:	f04f 33ff 	movlt.w	r3, #4294967295	; 0xffffffff
  800aed4:	f108 0802 	add.w	r8, r8, #2
  800aed8:	9305      	str	r3, [sp, #20]
  800aeda:	4d33      	ldr	r5, [pc, #204]	; (800afa8 <_vfiprintf_r+0x21c>)
@@ -29396,7 +29396,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800af68:	a904      	add	r1, sp, #16
  800af6a:	4630      	mov	r0, r6
  800af6c:	f3af 8000 	nop.w
- 800af70:	f1b0 3fff 	cmp.w	r0, #4294967295
+ 800af70:	f1b0 3fff 	cmp.w	r0, #4294967295	; 0xffffffff
  800af74:	4681      	mov	r9, r0
  800af76:	d1d5      	bne.n	800af24 <_vfiprintf_r+0x198>
  800af78:	89a3      	ldrh	r3, [r4, #12]
@@ -29496,7 +29496,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800b064:	47c0      	blx	r8
  800b066:	3001      	adds	r0, #1
  800b068:	d103      	bne.n	800b072 <_printf_common+0xba>
- 800b06a:	f04f 30ff 	mov.w	r0, #4294967295
+ 800b06a:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800b06e:	e8bd 87f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, r9, sl, pc}
  800b072:	3501      	adds	r5, #1
  800b074:	e7c3      	b.n	800affe <_printf_common+0x46>
@@ -29636,7 +29636,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800b1aa:	bfde      	ittt	le
  800b1ac:	2330      	movle	r3, #48	; 0x30
  800b1ae:	f805 3c01 	strble.w	r3, [r5, #-1]
- 800b1b2:	f105 35ff 	addle.w	r5, r5, #4294967295
+ 800b1b2:	f105 35ff 	addle.w	r5, r5, #4294967295	; 0xffffffff
  800b1b6:	ebac 0305 	sub.w	r3, ip, r5
  800b1ba:	6123      	str	r3, [r4, #16]
  800b1bc:	f8cd 8000 	str.w	r8, [sp]
@@ -29647,7 +29647,7 @@ uint8_t SEQ_BitPosition(uint32_t Value)
  800b1c8:	f7ff fef6 	bl	800afb8 <_printf_common>
  800b1cc:	3001      	adds	r0, #1
  800b1ce:	d14d      	bne.n	800b26c <_printf_i+0x1c8>
- 800b1d0:	f04f 30ff 	mov.w	r0, #4294967295
+ 800b1d0:	f04f 30ff 	mov.w	r0, #4294967295	; 0xffffffff
  800b1d4:	b005      	add	sp, #20
  800b1d6:	e8bd 83f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, r9, pc}
  800b1da:	4839      	ldr	r0, [pc, #228]	; (800b2c0 <_printf_i+0x21c>)

@@ -80,7 +80,7 @@ int _get_min(int* c) {
 
 int _get_min_if_pressed(int* c){
 	//return -1 if not pressed, otherwise return a logical minute value
-	if (c[0] <= IQS_TOUCH_THRESH) return -1;
+	if (c[0] <= IQS_TOUCH_THRESH || c[0] > 0xFF) return -1;
 	else return _get_min(c);
 }
 
@@ -138,6 +138,7 @@ HAL_StatusTypeDef setup_iqs263() {
 	HAL_Delay(50);
 	*/
 
+	/*
 	out_data[0]=0x00;
 	//time average filter coef in bits 5:4 (00 is slowest, 11 is fastest), counts filtering for noise in bits 1:0 (00 is no filter, 11 is slowest).
 	out_data[1]=0b00001001;
@@ -148,20 +149,59 @@ HAL_StatusTypeDef setup_iqs263() {
 	//out_data[3]=0x00;
 	out_data[3]=0b00000110;
 	out_data[4]=0x00;
+	*/
+
+
+	//for 0x07 - Multipliers
+	out_data[0]=0x11; //ch0 sensitivity and compensation multipliers
+	out_data[1]=0x11; //ch1 sensitivity and compensation multipliers
+	out_data[2]=0x11; //ch2 sensitivity and compensation multipliers
+	out_data[3]=0x11; //ch3 sensitivity and compensation multipliers
+	out_data[4]=0x11; //base values, see look up table. 138/138, can range from 74 to 298
+
+	resp = HAL_ERROR;
+	while (resp == HAL_ERROR){
+	  resp = HAL_I2C_Mem_Write(&IQS_I2C_PORT, IQS_ADDR, 0x07, 1, out_data, 5, HAL_MAX_DELAY);
+	}
+
+
+	//for 0x09 - ProxSettings:
+	out_data[0]=0b01000000;  // ProxSettings0
+	out_data[1]=0b00011011; // ProxSettings1
+	out_data[2]=0xb00000100; // ProxSettings2
+	out_data[3]=0b00000110; // ProxSettings3
+	out_data[4]=0x00; // Event Mask
 
 	resp = HAL_ERROR;
 	while (resp == HAL_ERROR){
 		  resp = HAL_I2C_Mem_Write(&IQS_I2C_PORT, IQS_ADDR, 0x09, 1, out_data, 5, HAL_MAX_DELAY);
 	}
 
-	/*
-	uint8_t readback[5] = {0x00, 0x00, 0x00, 0x00, 0x00};
+/*
+
+	//for 0x08 - Compensation
+	out_data[0] //ch0 compensation
+	out_data[1] //ch1 compensation
+	out_data[2] //ch2 compensation
+	out_data[3] //ch3 compensation
+*/
+	//for 0x0A - Thresholds
+	out_data[0]=1; //proximity thresh, default = 4D
+	out_data[1]=1; //ch1 thresh, default = 16D
+	out_data[2]=1; //ch2 thresh, default = 16D
+	out_data[3]=1; //ch3 thresh, default = 16D
+	out_data[4]=0; //move thresh, default = 3D
+
 	resp = HAL_ERROR;
 	while (resp == HAL_ERROR){
-	    resp = HAL_I2C_Mem_Read(&IQS_I2C_PORT, IQS_ADDR, 0x09, 1, readback, 5, HAL_MAX_DELAY);
+			  resp = HAL_I2C_Mem_Write(&IQS_I2C_PORT, IQS_ADDR, 0x0A, 1, out_data, 4, HAL_MAX_DELAY);
 	}
-	*/
-
+/*
+	//for 0x0B - Timing and Targets
+	out_data[0] //low power time, 16ms steps, default = 00
+	out_data[1] //ATI touch target, default = 48D
+	out_data[2] //ATI prox target, default = 64D
+*/
     return HAL_OK;
 }
 

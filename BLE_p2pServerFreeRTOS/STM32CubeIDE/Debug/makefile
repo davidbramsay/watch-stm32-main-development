@@ -69,8 +69,8 @@ all: main-build
 main-build: BLE_p2pServerFreeRTOS.elf secondary-outputs
 
 # Tool invocations
-BLE_p2pServerFreeRTOS.elf: $(OBJS) $(USER_OBJS) Z:\Documents\WB_freertos_ble_integration_test\BLE_p2pServerFreeRTOS\STM32CubeIDE\STM32WB55RGVX_FLASH.ld
-	arm-none-eabi-gcc -o "BLE_p2pServerFreeRTOS.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"Z:\Documents\WB_freertos_ble_integration_test\BLE_p2pServerFreeRTOS\STM32CubeIDE\STM32WB55RGVX_FLASH.ld" --specs=nosys.specs -Wl,-Map="BLE_p2pServerFreeRTOS.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+BLE_p2pServerFreeRTOS.elf: $(OBJS) $(USER_OBJS) /Users/davidramsay\ 1\ 2/watch-stm32-main-development/BLE_p2pServerFreeRTOS/STM32CubeIDE/STM32WB55RGVX_FLASH.ld
+	arm-none-eabi-gcc -o "BLE_p2pServerFreeRTOS.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/davidramsay 1 2/watch-stm32-main-development/BLE_p2pServerFreeRTOS/STM32CubeIDE/STM32WB55RGVX_FLASH.ld" --specs=nosys.specs -Wl,-Map="BLE_p2pServerFreeRTOS.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
