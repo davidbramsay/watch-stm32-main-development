@@ -1380,9 +1380,8 @@ void startESMMain(void *argument)
     // curr_time == last_time + interval  (minute resolution, this is checked every 15 sec).
     // programMode is RESTING
     // not GlobalState.paused
-    if (GlobalState.programMode == MODE_RESTING && !GlobalState.paused &&
-    	check_time_bounds(curr_hrs) && current_time_in_min >= thresh_time_in_min &&
-		(sameDayFlag | (curr_date > last_date )) ){
+    if (GlobalState.programMode == MODE_RESTING && !GlobalState.paused && check_time_bounds(curr_hrs) &&
+		(( (current_time_in_min >= thresh_time_in_min) && sameDayFlag) | (curr_date > last_date )) ){
 
     	//send TX_SURVEY_INITIALIZED
     	osMessageQueuePut(bleTXqueueHandle, &bleSendInit, 0, 0);

@@ -88,21 +88,21 @@ HAL_StatusTypeDef veml_Setup(I2C_HandleTypeDef i2cHandle, VEML7700_Mode_t Mode){
 		case VEML_5S_POLLING:
 			VEML_State.powerSaveMode = VEML7700_POWERSAVE_MODE4;
 			VEML_State.powerSaveEnable = 0x01;
-			VEML_State.gain = VEML7700_GAIN_1_4;
+			VEML_State.gain = VEML7700_GAIN_1_8;
 			VEML_State.integrationTime = VEML7700_IT_800MS;
 			break;
 
 		case VEML_100MS_POLLING:
 			VEML_State.powerSaveMode = VEML7700_POWERSAVE_MODE1;
 			VEML_State.powerSaveEnable = 0x00;
-			VEML_State.gain = VEML7700_GAIN_1_4;
+			VEML_State.gain = VEML7700_GAIN_1_8;
 			VEML_State.integrationTime = VEML7700_IT_100MS;
 			break;
 
 		case VEML_25MS_POLLING:
 			VEML_State.powerSaveMode = VEML7700_POWERSAVE_MODE1;
 			VEML_State.powerSaveEnable = 0x00;
-			VEML_State.gain = VEML7700_GAIN_1_4;
+			VEML_State.gain = VEML7700_GAIN_1_8;
 			VEML_State.integrationTime = VEML7700_IT_25MS;
 			break;
 	}
