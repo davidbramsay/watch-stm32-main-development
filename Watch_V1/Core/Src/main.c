@@ -773,10 +773,10 @@ static void MX_GPIO_Init(void)
 
 
 static void GlobalState_Init(){
-	GlobalState.timeBound.startHR_BCD = 0x10; //10AM, BCD
-	GlobalState.timeBound.endHR_BCD = 0x22;   //10PM, BCD
-	GlobalState.timeBound.minInterval = INTERVAL_MIN;   //15min min interval
-	GlobalState.timeBound.maxInterval = INTERVAL_MAX;   //90min max interval
+	//GlobalState.timeBound.startHR_BCD = 0x10; //10AM, BCD
+	//GlobalState.timeBound.endHR_BCD = 0x22;   //10PM, BCD
+	//GlobalState.timeBound.minInterval = INTERVAL_MIN;   //15min min interval
+	//GlobalState.timeBound.maxInterval = INTERVAL_MAX;   //90min max interval
 
 	RTC_TimeTypeDef tempTime;
 	RTC_DateTypeDef tempDate;
@@ -973,29 +973,18 @@ void startUIControl(void *argument)
        if (!touch_end_count){ //START TOUCH EVENT!
 
     	   er_oled_clear(oled_buf);
+    	   er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
 
-    	   switch (GlobalState.programMode) {
-    	   	   case MODE_ESM_TIME_ESTIMATE:
-    	   	       xTaskNotifyGive(esmMainHandle);
-           		   er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
-           		   break;
-    	   	   case MODE_ESM_SURVEY:
-    	   	       er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
-    	   	       break;
-    	   	   case MODE_RESTING:
-    			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-    			   GlobalState.programMode = MODE_TIME_ESTIMATE;
-    			   osMutexRelease(modeMutexHandle);
-    			   //fall through to next case
-    	   	   case MODE_TIME_ESTIMATE:
-    	   		   er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
-          		   break;
+    	   if (GlobalState.programMode == MODE_RESTING){
+    		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    		   GlobalState.programMode = MODE_TIME_ESTIMATE;
+    		   osMutexRelease(modeMutexHandle);
+    		   xTaskNotifyGive(esmMainHandle);
     	   }
 
            //if we're guessing the time, on start of touch we need to grab
            //the hour of the last seen time as a starting point.
-           if (GlobalState.programMode == MODE_TIME_ESTIMATE ||
-               GlobalState.programMode == MODE_ESM_TIME_ESTIMATE){
+           if (GlobalState.programMode == MODE_TIME_ESTIMATE){
 
                 osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
                 cTime = GlobalState.lastSeenTime.time;
@@ -1056,8 +1045,8 @@ void startUIControl(void *argument)
                     er_oled_display(oled_buf);
 
                     break;
+
                 case MODE_TIME_ESTIMATE:
-                case MODE_ESM_TIME_ESTIMATE:
 
                     //hours wrap
                     if (display_minute < 15 &&
@@ -1110,7 +1099,7 @@ void startUIControl(void *argument)
   		   		   xTaskNotifyGive(esmMainHandle);
   		   		   break;
 
-  		   	   case MODE_ESM_TIME_ESTIMATE:
+  		   	   case MODE_TIME_ESTIMATE:
   		   		   //send to ble
   		   		   bleSendData.sendType = TX_TIME_EST;
   		   		   bleSendData.data = (hrs << 8) | last_display_minute;
@@ -1120,17 +1109,6 @@ void startUIControl(void *argument)
    		   		   xTaskNotifyGive(esmMainHandle);
   		   		   break;
 
-  		   	   case MODE_TIME_ESTIMATE:
-  		   		   //send to ble
-  		   		   bleSendData.sendType = TX_TIME_EST;
-  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
-   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
-
-   		   		   //not from main thread, show time (which updates seen time, new interval, back to rest)
-  		   		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				   GlobalState.programMode = MODE_SHOW_TIME;
-				   osMutexRelease(modeMutexHandle);
-				   break;
   		   }
 
   		   touch_end_count = 0;
@@ -1175,13 +1153,20 @@ void startUIControl(void *argument)
 	       bleSendData.data = 0x0000;
 	       osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-	       updateInterval();
+	       //updateInterval();
 
 	       osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 	       GlobalState.programMode = MODE_RESTING;
 	       osMutexRelease(modeMutexHandle);
 
 	       osDelay(3000);
+
+	       osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+	       strncpy(GlobalState.surveyState.screenText, " GUESS TIME:", strlen(" GUESS TIME:") + 1);
+	       GlobalState.surveyState.screenTextLength = strlen(" GUESS TIME:");
+	       GlobalState.surveyState.surveyID = SURVEY_EST_TIME;
+	       osMutexRelease(surveyMutexHandle);
+
 	       er_oled_clear(oled_buf);
 	       er_oled_display(oled_buf);
 	       break;
@@ -1215,7 +1200,7 @@ void startUIControl(void *argument)
 		   bleSendData.data = 0x0000;
 		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
 
-		   updateInterval();
+		   //updateInterval();
 
 		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 		   GlobalState.programMode = MODE_RESTING;
@@ -1247,14 +1232,9 @@ void startUIControl(void *argument)
 		   osDelay(500);
     	   break;
 
-       case MODE_ESM_TIME_ESTIMATE:
-    	  er_oled_clear(oled_buf);
-    	  er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
-    	  er_oled_display(oled_buf);
-    	  osDelay(100);
-    	  break;
 
        case MODE_ESM_SURVEY:
+       case MODE_TIME_ESTIMATE:
     	  er_oled_clear(oled_buf);
     	  er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
     	  er_oled_display(oled_buf);
@@ -1310,118 +1290,41 @@ void startESMMain(void *argument)
 {
   /* USER CODE BEGIN startESMMain */
 
-
-  const BLETX_Queue_t bleSendInit = {TX_SURVEY_INITIALIZED, 0x0000};
-
   uint32_t notification;
-
-  RTC_TimeTypeDef cTime;
-  RTC_DateTypeDef cDate;
-
-  uint8_t last_hrs, last_min;
-  uint32_t last_date;
 
   /* Infinite loop */
   for(;;)
   {
 
-	//only check time 3 times a min to see if we need a survey
-    osDelay(20000); //20 sec delay
+	    //set this up so that interaction when watch is touched is:
+	    //GUESS_TIME:
+	    //confidence?     '>15m off', 'within 15m', 'within 5m', within 3m', within 1m'
+	    //PREV_KNOWN_TIME:
+	  	//confidence?     '>15m off', 'within 15m', 'within 5m', within 3m', within 1m'
+	    //NEXT_COMMITMENT:
 
-    //Grab current time
-    osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
-    HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
-    HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
-    osMutexRelease(rtcMutexHandle);
 
-    uint8_t curr_hrs = RTC_Bcd2ToByte(cTime.Hours);
-    uint8_t curr_min = RTC_Bcd2ToByte(cTime.Minutes);
-
-    //Get a date in YYMMDD format so we can easily compare relative values
-    uint32_t curr_date = (cDate.Year << 16) | (cDate.Month << 8) | cDate.Date;
-
-    //Grab last seen time hrs/min and date
-
-    if (ESM_SEPARATE_TIME_ESTIMATE){
-
-    	last_hrs = RTC_Bcd2ToByte(GlobalState.lastSurveyTime.time.Hours);
-		last_min = RTC_Bcd2ToByte(GlobalState.lastSurveyTime.time.Minutes);
-		last_date = (GlobalState.lastSurveyTime.date.Year << 16) |
-					(GlobalState.lastSurveyTime.date.Month << 8) |
-					 GlobalState.lastSurveyTime.date.Date;
-
-    } else {
-
-    	last_hrs = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Hours);
-    	last_min = RTC_Bcd2ToByte(GlobalState.lastSeenTime.time.Minutes);
-    	last_date = (GlobalState.lastSeenTime.date.Year << 16) |
-    	    		(GlobalState.lastSeenTime.date.Month << 8) |
-    				 GlobalState.lastSeenTime.date.Date;
-    }
-
-    uint8_t sameDayFlag = 1;
-
-    //Going to do time in minutes for ease.  60 min *24 hours = 1440 min / day
-
-    uint16_t current_time_in_min = (60*curr_hrs + curr_min);
-
-    uint16_t thresh_time_in_min = (60*last_hrs + last_min + GlobalState.currentInterval);
-	if (thresh_time_in_min >= 1440){
-		thresh_time_in_min %= 1440;
-		sameDayFlag = 0;
-	}
-
-	// if thresh time doesn't roll over, we can safely assume that any time <= thresh_time
-	// should trigger (sameDayFlag=1)
-	// if we *do* roll over, any day that is greater than the last_seen_day should trigger
-
-    //Init Survey:
-    // TIME BOUNDS for current time hrs
-    // curr_time == last_time + interval  (minute resolution, this is checked every 15 sec).
-    // programMode is RESTING
-    // not GlobalState.paused
-    if (GlobalState.programMode == MODE_RESTING && !GlobalState.paused && check_time_bounds(curr_hrs) &&
-		(( (current_time_in_min >= thresh_time_in_min) && sameDayFlag) | (curr_date > last_date )) ){
-
-    	//send TX_SURVEY_INITIALIZED
-    	osMessageQueuePut(bleTXqueueHandle, &bleSendInit, 0, 0);
-
-    	//set program mode to MODE_ESM_TIME_ESTIMATE
-    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-    	GlobalState.programMode = MODE_ESM_TIME_ESTIMATE;
-    	osMutexRelease(modeMutexHandle);
 
     	//clear UI notification flags
     	xTaskNotifyStateClear(NULL);
 
+    	osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+    	strncpy(GlobalState.surveyState.screenText, " GUESS TIME:", strlen(" GUESS TIME:") + 1);
+    	GlobalState.surveyState.screenTextLength = strlen(" GUESS TIME:");
+    	GlobalState.surveyState.surveyID = SURVEY_EST_TIME;
+    	osMutexRelease(surveyMutexHandle);
+
     	uint8_t continue_flag = 1;
 
-    	//(1) Alert Loop and ESM_TIME_ESTIMATE
-    	uint8_t keep_alerting = 1;
-    	while(keep_alerting){
+    	//wait for notification from UI thread that indicates start of user interaction
+    	notification = ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
 
-    		//alert
-    		xTaskNotifyGive(alertHandle);
-    		//wait for notification from UI thread that indicates start of user interaction
-    		notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(ALERT_TIMEOUT));
-       	    if (notification){ //not a timeout, interaction started
-        		keep_alerting = 0;
-     		}
-    	    if (GlobalState.programMode != MODE_ESM_TIME_ESTIMATE){
-    	    	//button press has changed mode and canceled interaction. want to exit alert loop.
-    	    	keep_alerting = 0;
-    	    	continue_flag = 0;
-    	    }
-
-    	    osDelay(10);
-        }
-
-    	//SECOND SCREEN FOR ESM - FOCUS
+    	//SECOND SCREEN FOR ESM - CONFIDENCE_TIME
     	if (continue_flag){
     		//(2) Wait for notification from UI thread that indicates confirmed input
     		notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
 
-    		if (GlobalState.programMode != MODE_ESM_TIME_ESTIMATE){
+    		if (GlobalState.programMode != MODE_TIME_ESTIMATE){
     			//if our mode has changed, we had a dismiss/snooze event
     			continue_flag = 0;
     		}
@@ -1432,10 +1335,10 @@ void startESMMain(void *argument)
     			//set up next interaction
     			//set up survey
     			osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-    			strncpy(GlobalState.surveyState.screenText, "    FOCUS?", strlen("    FOCUS?") + 1);
-    			GlobalState.surveyState.screenTextLength = strlen("    FOCUS?");
-    			GlobalState.surveyState.surveyID = SURVEY_FOCUS;
-    			memcpy(GlobalState.surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
+    			strncpy(GlobalState.surveyState.screenText, " CONFIDENCE?", strlen(" CONFIDENCE?") + 1);
+    			GlobalState.surveyState.screenTextLength = strlen(" CONFIDENCE?");
+    			GlobalState.surveyState.surveyID = SURVEY_CONFTIME;
+    			memcpy(GlobalState.surveyState.optionArray, opts_confidence, sizeof(opts_confidence));
     			GlobalState.surveyState.optionArrayLength = 5;
     			osMutexRelease(surveyMutexHandle);
 
@@ -1453,7 +1356,7 @@ void startESMMain(void *argument)
     		}
     	}
 
-    	//THIRD SCREEN FOR ESM - ALERTNESS/AROUSAL
+    	//THIRD SCREEN FOR ESM - PREV_TIME
 		if (continue_flag){
 			//(2) Wait for notification from UI thread that indicates confirmed input
 			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
@@ -1469,12 +1372,15 @@ void startESMMain(void *argument)
 				//set up next interaction
 				//set up survey
 				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " ALERTNESS?", strlen(" ALERTNESS?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" ALERTNESS?");
-				GlobalState.surveyState.surveyID = SURVEY_AROUSAL;
-				memcpy(GlobalState.surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
-				GlobalState.surveyState.optionArrayLength = 5;
+				strncpy(GlobalState.surveyState.screenText, " PREV. TIME:", strlen(" PREV. TIME:") + 1);
+				GlobalState.surveyState.screenTextLength = strlen(" PREV. TIME:");
+				GlobalState.surveyState.surveyID = SURVEY_PREVTIME;
 				osMutexRelease(surveyMutexHandle);
+
+    			//programMode
+    			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			GlobalState.programMode = MODE_TIME_ESTIMATE;
+    			osMutexRelease(modeMutexHandle);
 
 			} else {//timed out due to inactivity
 				continue_flag = 0;
@@ -1485,7 +1391,44 @@ void startESMMain(void *argument)
 			}
 		}
 
-		//FOURTH SCREEN FOR ESM - EMOTION/VALENCE
+		//FOURTH SCREEN FOR ESM - CONFIDENCE
+		if (continue_flag){
+			//(2) Wait for notification from UI thread that indicates confirmed input
+			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
+
+			if (GlobalState.programMode != MODE_TIME_ESTIMATE){
+				//if our mode has changed, we had a dismiss/snooze event
+				continue_flag = 0;
+			}
+		}
+
+		if (continue_flag){
+			if (notification){//not timed out, had a confirmed event
+				//set up next interaction
+				//set up survey
+    			osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
+    			strncpy(GlobalState.surveyState.screenText, " CONFIDENCE?", strlen(" CONFIDENCE?") + 1);
+    			GlobalState.surveyState.screenTextLength = strlen(" CONFIDENCE?");
+    			GlobalState.surveyState.surveyID = SURVEY_CONFPREV;
+    			memcpy(GlobalState.surveyState.optionArray, opts_confidence, sizeof(opts_confidence));
+    			GlobalState.surveyState.optionArrayLength = 5;
+    			osMutexRelease(surveyMutexHandle);
+
+    			//programMode
+    			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			GlobalState.programMode = MODE_ESM_SURVEY;
+    			osMutexRelease(modeMutexHandle);
+
+			} else {//timed out due to inactivity
+				continue_flag = 0;
+
+				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+				GlobalState.programMode = MODE_CLEAR;
+				osMutexRelease(modeMutexHandle);
+			}
+		}
+
+		//FIFTH SCREEN FOR ESM - NEXT TIME
 		if (continue_flag){
 			//(2) Wait for notification from UI thread that indicates confirmed input
 			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
@@ -1501,12 +1444,16 @@ void startESMMain(void *argument)
 				//set up next interaction
 				//set up survey
 				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, "  EMOTION?", strlen("  EMOTION?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen("  EMOTION?");
-				GlobalState.surveyState.surveyID = SURVEY_VALENCE;
-				memcpy(GlobalState.surveyState.optionArray, opts_valence, sizeof(opts_valence));
-				GlobalState.surveyState.optionArrayLength = 5;
+				strncpy(GlobalState.surveyState.screenText, " NEXT TIME:", strlen(" NEXT TIME:") + 1);
+				GlobalState.surveyState.screenTextLength = strlen(" NEXT TIME:");
+				GlobalState.surveyState.surveyID = SURVEY_NEXTTIME;
 				osMutexRelease(surveyMutexHandle);
+
+
+    			//programMode
+    			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    			GlobalState.programMode = MODE_TIME_ESTIMATE;
+    			osMutexRelease(modeMutexHandle);
 
 			} else {//timed out due to inactivity
 				continue_flag = 0;
@@ -1517,268 +1464,13 @@ void startESMMain(void *argument)
 			}
 		}
 
-		//FIFTH SCREEN FOR ESM - COG LOAD
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, "COG. EFFORT?", strlen("COG. EFFORT?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen("COG. EFFORT?");
-				GlobalState.surveyState.surveyID = SURVEY_COGLOAD;
-				memcpy(GlobalState.surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
-				GlobalState.surveyState.optionArrayLength = 5;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-
-		//SIXTH SCREEN FOR ESM - STRESS
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, "  STRESS?", strlen("  STRESS?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen("  STRESS?");
-				GlobalState.surveyState.surveyID = SURVEY_STRESS;
-				memcpy(GlobalState.surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
-				GlobalState.surveyState.optionArrayLength = 5;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-
-		//SEVENTH SCREEN FOR ESM - CAFFEINE
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " CAFFEINE?", strlen(" CAFFEINE?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" CAFFEINE?");
-				GlobalState.surveyState.surveyID = SURVEY_CAFFEINE;
-				memcpy(GlobalState.surveyState.optionArray, opts_yes, sizeof(opts_yes));
-				GlobalState.surveyState.optionArrayLength = 2;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-		/*
-		//EIGHTH SCREEN FOR ESM - EXERCISE
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " EXERCISE?", strlen(" EXERCISE?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" EXERCISE?");
-				GlobalState.surveyState.surveyID = SURVEY_EXERCISE;
-				memcpy(GlobalState.surveyState.optionArray, opts_yes, sizeof(opts_yes));
-				GlobalState.surveyState.optionArrayLength = 2;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-
-		//NINETH SCREEN FOR ESM - TIME CUE
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " TIME CUE?", strlen(" TIME CUE?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" TIME CUE?");
-				GlobalState.surveyState.surveyID = SURVEY_TIMECUE;
-				memcpy(GlobalState.surveyState.optionArray, opts_yes, sizeof(opts_yes));
-				GlobalState.surveyState.optionArrayLength = 2;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-
-		//TENTH SCREEN FOR ESM - LOCATION
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " LOCATION?", strlen(" LOCATION?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" LOCATION?");
-				GlobalState.surveyState.surveyID = SURVEY_LOCATE;
-				memcpy(GlobalState.surveyState.optionArray, opts_location, sizeof(opts_location));
-				GlobalState.surveyState.optionArrayLength = 2;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-		*/
-		//ELEVENTH SCREEN FOR ESM - THERMAL SENSATION
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, " SENSATION?", strlen(" SENSATION?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen(" SENSATION?");
-				GlobalState.surveyState.surveyID = SURVEY_TSENSE;
-				memcpy(GlobalState.surveyState.optionArray, opts_thermalsense, sizeof(opts_thermalsense));
-				GlobalState.surveyState.optionArrayLength = 7;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
-
-		//TWELFTH SCREEN FOR ESM - THERMAL PREF
-		if (continue_flag){
-			//(2) Wait for notification from UI thread that indicates confirmed input
-			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
-
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
-				//if our mode has changed, we had a dismiss/snooze event
-				continue_flag = 0;
-			}
-		}
-
-		if (continue_flag){
-			if (notification){//not timed out, had a confirmed event
-				//set up next interaction
-				//set up survey
-				osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-				strncpy(GlobalState.surveyState.screenText, "TEMP PREFER?", strlen("TEMP PREFER?") + 1);
-				GlobalState.surveyState.screenTextLength = strlen("TEMP PREFER?");
-				GlobalState.surveyState.surveyID = SURVEY_TCOMFORT;
-				memcpy(GlobalState.surveyState.optionArray, opts_thermalcomfort, sizeof(opts_thermalcomfort));
-				GlobalState.surveyState.optionArrayLength = 3;
-				osMutexRelease(surveyMutexHandle);
-
-			} else {//timed out due to inactivity
-				continue_flag = 0;
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_CLEAR;
-				osMutexRelease(modeMutexHandle);
-			}
-		}
 
 		//FINISH ESM; SHOW TIME
 		if (continue_flag){
 			//(2) Wait for notification from UI thread that indicates confirmed input
 			notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(INTERACTION_TIMEOUT));
 
-			if (GlobalState.programMode != MODE_ESM_SURVEY){
+			if (GlobalState.programMode != MODE_TIME_ESTIMATE){
 				//if our mode has changed, we had a dismiss/snooze event
 				continue_flag = 0;
 			}
@@ -1791,7 +1483,7 @@ void startESMMain(void *argument)
 				//back to rest, show time
 				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
 				GlobalState.programMode = MODE_SHOW_TIME;
-				osMutexRelease(modeMutexHandle);;
+				osMutexRelease(modeMutexHandle);
 
 			} else {//timed out due to inactivity
 				continue_flag = 0;
@@ -1802,26 +1494,7 @@ void startESMMain(void *argument)
 			}
 		}
 
-		updateLastSurveyTime();
-
-    } else {//not time for a survey
-
-    	//get hour for last_seen + interval (trigger) time
-    	uint8_t extra_hours = (last_min + GlobalState.currentInterval) / 60;
-    	last_hrs = (last_hrs + extra_hours) % 24;
-
-    	//if next trigger is outside of timebound (i.e. last seen time is end of the day) AND
-    	//its the morning (curr_hr = startHR), put it in paused mode, wait for user to initiate.
-    	if (!check_time_bounds(last_hrs) && (curr_hrs == RTC_Bcd2ToByte(GlobalState.timeBound.startHR_BCD)) && !GlobalState.paused){
-    		GlobalState.paused = 1;
-    		const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
-     		osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
-
-
-    	}
-
-    }
-
+		updateLastSeenTime();
 
   }
   /* USER CODE END startESMMain */

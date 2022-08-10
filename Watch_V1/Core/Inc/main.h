@@ -46,37 +46,26 @@ void Error_Handler(void);
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
 
-#define SURVEY_NONE     0x0
-#define SURVEY_FOCUS    0x1 //focus level during last interval
-#define SURVEY_AROUSAL  0x2 //altertness level during last interval
-#define SURVEY_VALENCE  0x3 //valence level during last interval
-#define SURVEY_COGLOAD  0x4 //cognitive load during last interval
-#define SURVEY_TIMECUE  0x5 //event with known clock reference, notification about time, in last interval?
-#define SURVEY_CAFFEINE 0x6 //drink caffeine in last interval?
-#define SURVEY_EXERCISE 0x7 //exercise in last interval? heavy light no
-#define SURVEY_STRESS   0x8 //stress during last interval
-#define SURVEY_LOCATE   0x9 //location
-#define SURVEY_TSENSE   0xA //thermal sensation
-#define SURVEY_TCOMFORT 0xB //thermal comfort
+#define SURVEY_NONE      0x0
+#define SURVEY_EST_TIME  0x1    //guess of current time
+#define SURVEY_CONFTIME  0x2    //confidence of current time guess
+#define SURVEY_PREVTIME  0x3    //guess of previously seen time
+#define SURVEY_CONFPREV  0x4    //confidence of previous time seen
+#define SURVEY_NEXTTIME  0x5    //time of next scheduled event
 
-#define INTERVAL_MIN 45 //min interval in min
-#define INTERVAL_MAX 75 //max interval in min
-
-#define ESM_SEPARATE_TIME_ESTIMATE 1 //if 0, ESM clock resets anytime the time is viewed; otherwise it's separate
-
-//settings for when to randomly ESM
-typedef struct {
-  uint8_t startHR_BCD; // hour in day to start allowing notifications, BCD format
-  uint8_t endHR_BCD;   // hour in day to stop allowing notifications, BCD format
-  uint8_t minInterval; //minimum number of mins to pass before new ESM notification
-  uint8_t maxInterval; //maximum number of mins to pass before new ESM notification
-} ESMTimeBounds_t;
 
 //wrapper for timestamp data
 typedef struct {
   RTC_TimeTypeDef time;
   RTC_DateTypeDef date;
 } TimeStruct_t;
+
+typedef struct {
+  uint8_t startHR_BCD; // hour in day to start allowing notifications, BCD format
+  uint8_t endHR_BCD;   // hour in day to stop allowing notifications, BCD format
+  uint8_t minInterval; //minimum number of mins to pass before new ESM notification
+  uint8_t maxInterval; //maximum number of mins to pass before new ESM notification
+} ESMTimeBounds_t;
 
 //wrapper for condition data
 typedef struct {
@@ -89,8 +78,7 @@ typedef struct {
 //state indicator for program
 typedef enum {
 	MODE_RESTING, //nothing is going on
-	MODE_TIME_ESTIMATE, //user interaction driven event, wants to check time
-	MODE_ESM_TIME_ESTIMATE, //random interruption, ask user for time estimate and notify ESM thread at complete
+	MODE_TIME_ESTIMATE, //random interruption, ask user for time estimate and notify ESM thread at complete
 	MODE_ESM_SURVEY, //random interruption, ask user for survey response and notify ESM thread at complete
 	MODE_CANCEL, //button press that indicates we need to display current time
 	MODE_SHOW_TIME, //show time (like mode cancel) but without 'dismissed' warning
@@ -107,14 +95,7 @@ typedef struct {
 	uint8_t optionArrayLength; //num of options
 } Survey_t;
 
-static const char* const opts_five[][8] = {"      1", "      2", "      3", "      4", "      5"};
-static const char* const opts_agree[][11] = {"  disagree", "    agree"};
-static const char* const opts_valence[][11] = {"vry negative", "  negative", "  neutral", "  positive", "vry positive"};
-static const char* const opts_arousal[][11] = {"  very low", "    low", "  average", "    high", " very high"};
-static const char* const opts_yes[][11] = {"     no", "    yes"};
-static const char* const opts_location[][11] = {"   indoor", "  outdoor"};
-static const char* const opts_thermalsense[][11] = {"    cold", "    cool","slghtly cool","   neutral","slghtly warm","    warm","     hot",};
-static const char* const opts_thermalcomfort[][11] = {"   cooler", " no change", "   warmer"};
+static const char* const opts_confidence[][11] = {" >15min off", " within 15m", " within  5m", " within  3m", " within  1m"};
 
 typedef struct {
 	ESMTimeBounds_t timeBound; //protected by timeBoundMutex
