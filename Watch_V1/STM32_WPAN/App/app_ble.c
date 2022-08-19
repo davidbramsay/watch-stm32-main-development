@@ -223,7 +223,7 @@ P2PS_APP_ConnHandle_Not_evt_t handleNotification;
 float tab_conn_interval[SIZE_TAB_CONN_INT] = {50, 50} ; /* ms */
 uint8_t index_con_int, mutex;
 
-static const char local_name[] = { AD_TYPE_COMPLETE_LOCAL_NAME ,'W','A','T','C','H','0','1'};
+static const char local_name[] = { AD_TYPE_COMPLETE_LOCAL_NAME ,'W','A','T','C','H','S','A','M'};
 uint8_t  manuf_data[14] = {
     sizeof(manuf_data)-1, AD_TYPE_MANUFACTURER_SPECIFIC_DATA,
     0x01/*SKD version */,
@@ -856,7 +856,7 @@ static void Ble_Hci_Gap_Gatt_Init(void){
 
   if (role > 0)
   {
-    const char *name = "WATCH01";
+    const char *name = "WATCHSAM";
     aci_gap_init(role, 0,
                  APPBLE_GAP_DEVICE_NAME_LENGTH,
                  &gap_service_handle, &gap_dev_name_char_handle, &gap_appearance_char_handle);
