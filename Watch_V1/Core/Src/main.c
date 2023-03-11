@@ -38,6 +38,16 @@
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+
+
+//This version is for the PhD Study.  It needs the following functionality:
+//
+
+// (1) on and reporting whenever it connects.
+// (2) press and hold to reset it.
+// (3) press to start study and see the time. (it starts in software on time_seen)
+
+
 #include "main.h"
 #include "cmsis_os.h"
 #include "app_entry.h"
@@ -220,6 +230,7 @@ const osMutexAttr_t surveyMutex_attributes = {
 
 /* USER CODE BEGIN PV */
 
+uint8_t saw_time = 0;
 
 typedef enum {
 	LED_NONE,
@@ -971,6 +982,7 @@ void startUIControl(void *argument)
      //er_oled_display(oled_buf);
      // /* comment out when doing angle adjustments
 
+     /*
 	 current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
      if (current_minute != -1) { //touch!
 
@@ -1125,16 +1137,20 @@ void startUIControl(void *argument)
 
 
      }else { //no touch, wait for a touch
-
+	 */
        switch (GlobalState.programMode){
         case MODE_CANCEL:
     	   //had a 'cancel' button event
+           if(!saw_time){
 
-    	   er_oled_clear(oled_buf);
+
+           er_oled_clear(oled_buf);
+           er_oled_string(0, 0, "START TASK ", 12, 1, oled_buf);
+           er_oled_display(oled_buf);
    	   	   er_oled_string(0, 20, "TIME IS NOW:", 12, 1, oled_buf);
    	   	   er_oled_display(oled_buf);
 
-   	   	   osDelay(500);
+   	   	   osDelay(750);
 
    	   	   osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
    	   	   HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
@@ -1145,6 +1161,13 @@ void startUIControl(void *argument)
    	   	   mins = RTC_Bcd2ToByte(cTime.Minutes);
    	   	   sprintf (time, "%02d%02d", hrs, mins);
    	   	   er_oled_time(time);
+           saw_time = 1;
+           }else {
+        	   er_oled_clear(oled_buf);
+        	   er_oled_string(0, 20, "  COMPLETE", 12, 1, oled_buf);
+        	   er_oled_display(oled_buf);
+           }
+
 
 	       osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
 	       GlobalState.lastSeenTime.time = cTime;
@@ -1250,7 +1273,7 @@ void startUIControl(void *argument)
 
      }
      // comment out when doing angle adjustments -- */
-    }
+    //}
 
 
 
@@ -1378,15 +1401,7 @@ void startButtonPress(void *argument)
 
 		//callingPin can be used as bitmask Pin 5/4/3 give 1000000/10000/1000
 
-		if (callingPin == 0b1000 && first_read != buttonState[0]) { //button 1 trigger
-		  //set buttonState
-		  buttonState[0] = first_read;
-
-		  //do stuff if button pressed
-		  if (!first_read){
-
-			  	//GlobalState.paused = 0;
-				//GlobalState.demo = 0;
+		if (callingPin == 0b1000 && !first_read) { //button 1 trigger
 
 				//timeout for release at 6 secs
 				holdValue = 0x00;
@@ -1407,19 +1422,8 @@ void startButtonPress(void *argument)
 				} else { //took six seconds
 					  NVIC_SystemReset();
 				}
-
-		  }
-
 		}
-		if (callingPin == 0b10000 && first_read != buttonState[1]) { //button 2 trigger
-		    //set buttonState
-		    buttonState[1] = first_read;
-
-		    //do stuff if button pressed
-		    if (!first_read){
-
-		      	//GlobalState.paused = 0;
-				//GlobalState.demo = 0;
+		if (callingPin == 0b10000 && !first_read) { //button 2 trigger
 
 				//timeout for release at 6 secs
 				holdValue = 0x00;
@@ -1440,20 +1444,10 @@ void startButtonPress(void *argument)
 				} else { //took six seconds
 					  NVIC_SystemReset();
 				}
-
-		    }
 		}
-		if (callingPin == 0b100000 && first_read != buttonState[2]) { //button 3 trigger
-		    //set buttonState
-		    buttonState[2] = first_read;
+		if (callingPin == 0b100000 && !first_read) { //button 3 trigger
 
-		    //do stuff if button pressed
-		    if (!first_read){
-
-		    	//GlobalState.paused = 0;
-		    	//GlobalState.demo = 0;
-
-		    	//timeout for release at 6 secs
+				//timeout for release at 6 secs
 		    	holdValue = 0x00;
 		    	xTaskNotifyWait(0b100000, 0x00, &holdValue, pdMS_TO_TICKS(6000));
 
@@ -1472,10 +1466,6 @@ void startButtonPress(void *argument)
 		    	} else { //took six seconds
 		    		  NVIC_SystemReset();
 		    	}
-
-
-
-		    }
 		}
 
 	}
