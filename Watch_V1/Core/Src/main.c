@@ -927,7 +927,7 @@ void startUIControl(void *argument){
     //on notification, check mode
     if (GlobalState.programMode == MODE_NOTICED){
     	er_oled_clear(oled_buf);
-    	er_oled_string(0, 20, "  COMPLETE", 12, 1, oled_buf);
+    	er_oled_string(0, 20, "  NOTICED.", 12, 1, oled_buf);
     	er_oled_display(oled_buf);
 
     	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
@@ -1311,7 +1311,7 @@ void startUIControl(void *argument){
     		  			   break;
     		  		   case 4:
     		  			   er_oled_string(0, 0, " NEXT ACT?", 12, 1, oled_buf);
-						   surveyState.surveyID = SURVEY_TIMEFLOW;
+						   surveyState.surveyID = SURVEY_NEWACT;
 						   memcpy(surveyState.optionArray, opts_act, sizeof(opts_act));
 						   surveyState.optionArrayLength = 11;
     		  			   break;
@@ -1426,12 +1426,7 @@ void startButtonPress(void *argument)
 		    		xTaskNotifyGive(uiControlHandle);
 
 				} else { //took six seconds
-					osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-					GlobalState.programMode = MODE_VIEW_TIME;
-					osMutexRelease(modeMutexHandle);
-
-					xTaskNotifyGive(uiControlHandle);
-
+					xTaskNotifyGive(alertHandle);
 				}
 		}
 		if (callingPin == 0b100000 && !first_read) { //button 3 trigger
@@ -1455,7 +1450,11 @@ void startButtonPress(void *argument)
 
 
 		    	} else { //took six seconds
-		    		  xTaskNotifyGive(alertHandle);
+		    		osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+					GlobalState.programMode = MODE_VIEW_TIME;
+					osMutexRelease(modeMutexHandle);
+
+					xTaskNotifyGive(uiControlHandle);
 		    	}
 		}
 
