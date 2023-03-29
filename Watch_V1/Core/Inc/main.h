@@ -46,12 +46,16 @@ void Error_Handler(void);
 #define BUTTON_3_GPIO_Port GPIOB
 #define BUTTON_3_EXTI_IRQn EXTI9_5_IRQn
 
-#define SURVEY_NONE      0x0
-#define SURVEY_EST_TIME  0x1    //guess of current time
-#define SURVEY_CONFTIME  0x2    //confidence of current time guess
-#define SURVEY_PREVTIME  0x3    //guess of previously seen time
-#define SURVEY_CONFPREV  0x4    //confidence of previous time seen
-#define SURVEY_NEXTTIME  0x5    //time of next scheduled event
+#define SURVEY_CONFTIME  0x0    //confidence of current time guess
+#define SURVEY_STRESS  	 0x1    //stress
+#define SURVEY_ALERTNESS 0x2    //alterness
+#define SURVEY_FOCUS     0x3    //deepest focus level
+#define SURVEY_TIMEFLOW  0x4    //percent time in that state
+#define SURVEY_CONFDUR   0x5    //confidence in duration
+#define SURVEY_COGLOAD   0x6    //confidence in duration
+#define SURVEY_EMOTION   0x7    //confidence in duration
+#define SURVEY_NEWACT    0x8    //confidence in duration
+
 
 
 //wrapper for timestamp data
@@ -60,12 +64,6 @@ typedef struct {
   RTC_DateTypeDef date;
 } TimeStruct_t;
 
-typedef struct {
-  uint8_t startHR_BCD; // hour in day to start allowing notifications, BCD format
-  uint8_t endHR_BCD;   // hour in day to stop allowing notifications, BCD format
-  uint8_t minInterval; //minimum number of mins to pass before new ESM notification
-  uint8_t maxInterval; //maximum number of mins to pass before new ESM notification
-} ESMTimeBounds_t;
 
 //wrapper for condition data
 typedef struct {
@@ -77,37 +75,39 @@ typedef struct {
 
 //state indicator for program
 typedef enum {
-	MODE_RESTING, //nothing is going on
-	MODE_TIME_ESTIMATE, //random interruption, ask user for time estimate and notify ESM thread at complete
-	MODE_ESM_SURVEY, //random interruption, ask user for survey response and notify ESM thread at complete
-	MODE_CANCEL, //button press that indicates we need to display current time
-	MODE_SHOW_TIME, //show time (like mode cancel) but without 'dismissed' warning
-	MODE_ERROR, //something went wrong, display error
-	MODE_CLEAR  //timeout, clear screen and go back to rest
+	MODE_SURVEY,
+	MODE_ACTIVITY,
+	MODE_NOTICED,
+	MODE_RESTING,
+	MODE_ERROR,
+	MODE_VIEW_TIME
 } ProgramMode_t;
 
 //screen state information
 typedef struct {
 	uint8_t surveyID; //survey ID using #defines above
 	char screenText[128]; //topline text for survey
-	uint8_t screenTextLength; //length of text
-	char *optionArray[7];  //array of char arrays to represent touch options, i.e. 'agree'/'disagree' or '1''2''3'
+	char *optionArray[11];  //array of char arrays to represent touch options, i.e. 'agree'/'disagree' or '1''2''3'
 	uint8_t optionArrayLength; //num of options
 } Survey_t;
 
 static const char* const opts_confidence[][11] = {" >15min off", " within 15m", " within  5m", " within  3m", " within  1m"};
+//static const char* const opts_five[][8] = {"      1", "      2", "      3", "      4", "      5"};
+//static const char* const opts_agree[][11] = {"  disagree", "    agree"};
+static const char* const opts_valence[][11] = {"vry negative", "  negative", "  neutral", "  positive", "vry positive"};
+static const char* const opts_arousal[][11] = {"  very low", "    low", "  average", "    high", " very high"};
+//static const char* const opts_yes[][11] = {"     no", "    yes"};
+//static const char* const opts_location[][11] = {"   indoor", "  outdoor"};
+//static const char* const opts_thermalsense[][11] = {"    cold", "    cool","slghtly cool","   neutral","slghtly warm","    warm","     hot",};
+//static const char* const opts_thermalcomfort[][11] = {"   cooler", " no change", "   warmer"};
+static const char* const opts_timeflow[][8] = {"     0%","    10%","    20%","    30%","    40%","    50%","    60%","    70%","    80%","    90%","   100%"};
+static const char* const opts_act[][11] = {"  reading", "  writing", " viewing", " browsing", "   games", "music-play", " music-rec", "  social", "  coding", " building", "misc work"};
+
 
 typedef struct {
-	ESMTimeBounds_t timeBound; //protected by timeBoundMutex
 	TimeStruct_t lastSeenTime;  //protected by lastSeenMutex
-	TimeStruct_t lastSurveyTime; //also protected by lastSeenMutex
-	//TimeStruct_t timeEstimateSample; //protected by timeEstimateMutex
 	ConditionSample_t lastConditions; //protected by conditionMutex
 	ProgramMode_t programMode; //protected by modeMutex
-	Survey_t surveyState; //protected by surveyMutex
-	uint8_t currentInterval; //current interval to wait for
-	uint8_t paused; //can stop all ESM from phone; turned off by default
-	uint8_t demo; //whether we're in demo mode, flash the LEDs
 } GlobalState_t;
 
 char errorCondition[13];
@@ -115,15 +115,16 @@ char errorCondition[13];
 GlobalState_t GlobalState;
 
 typedef enum {
-	TX_LUX_WHITELUX,        //0 x
-	TX_TEMP_HUMD,           //1 x
-	TX_SURVEY_INITIALIZED,  //2
+	TX_LUX_WHITELUX,        //0
+	TX_TEMP_HUMD,           //1
+	TX_NOTICED_LED,  		//2
 	TX_TIME_EST,            //3
 	TX_TIME_SEEN,           //4
 	TX_SURVEY_RESULT,       //5
 	TX_PREVIOUS_INVALID,    //6
 	TX_TIMESTAMP_UPDATE,    //7
-	TX_BEGIN_PAUSE			//8
+	TX_DURATION_EST			//8
+
 } SendDataType_t;
 
 //data pass to BLETX thread
@@ -170,13 +171,6 @@ osMessageQueueId_t bleRXqueueHandle;
 
 
 //THREADS
-// esmMain -- launch ESM at random intervals, notify UI, handle
-//            timeouts for interaction and alerts.  main thread.
-//            on init timeout for time estimate, if mode has changed
-//            because of button press (sleep) skip rest, otherwise loop
-//            alert.  on timeout for other survey, simply skip rest.
-//            wait to launch if not RESTING.
-
 // uiControl -- touch and screen update handling.  Send ui events
 //              to BLETX, notify esmMain when ui event complete.
 //              loop that check for press and mode; faster loop

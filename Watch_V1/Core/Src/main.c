@@ -40,12 +40,17 @@
 /* Includes ------------------------------------------------------------------*/
 
 
-//This version is for the PhD Study.  It needs the following functionality:
+//This version is for the Living Lab Study.  It needs the following functionality:
 //
 
 // (1) on and reporting whenever it connects.
 // (2) press and hold to reset it.
-// (3) press to start study and see the time. (it starts in software on time_seen)
+// (3) BUTTON 1: initiate survey: time, certainty about time, stress, alertness, max depth of flow, %flow
+// (4) BUTTON 2: switch activity: duration guess of current activity, new activity
+// (5) BUTTON 3: noticed LED
+
+//DO NOT need separate UI and touch threads; these should happen together.
+//DO NOT need a constant loop other than waiting for notify from button presses.
 
 
 #include "main.h"
@@ -76,13 +81,6 @@ TIM_HandleTypeDef htim1;
 
 
 //THREADS
-// esmMain -- launch ESM at random intervals, notify UI, handle
-//            timeouts for interaction and alerts.  main thread.
-//            on init timeout for time estimate, if mode has changed
-//            because of button press (sleep) skip rest, otherwise loop
-//            alert.  on timeout for other survey, simply skip rest.
-//            wait to launch if not RESTING.
-
 // uiControl -- touch and screen update handling.  Send ui events
 //              to BLETX, notify esmMain when ui event complete.
 //              loop that check for press and mode; faster loop
@@ -134,13 +132,6 @@ const osThreadAttr_t uiControl_attributes = {
   .name = "uiControl",
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
-};
-/* Definitions for esmMainl */
-osThreadId_t esmMainHandle;
-const osThreadAttr_t esmMain_attributes = {
-  .name = "esmMain",
-  .priority = (osPriority_t) osPriorityBelowNormal,
-  .stack_size = 128 * 8
 };
 /* Definitions for buttonPress */
 osThreadId_t buttonPressHandle;
@@ -222,12 +213,6 @@ osMutexId_t modeMutexHandle;
 const osMutexAttr_t modeMutex_attributes = {
   .name = "modeMutex"
 };
-/* Definitions for surveyMutex */
-osMutexId_t surveyMutexHandle;
-const osMutexAttr_t surveyMutex_attributes = {
-  .name = "surveyMutex"
-};
-
 /* USER CODE BEGIN PV */
 
 uint8_t saw_time = 0;
@@ -346,9 +331,6 @@ int main(void)
     /* creation of modeMutex */
     modeMutexHandle = osMutexNew(&modeMutex_attributes);
 
-    /* creation of surveyMutex */
-    surveyMutexHandle = osMutexNew(&surveyMutex_attributes);
-
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -363,9 +345,6 @@ int main(void)
   /* Create the thread(s) */
         /* creation of uiControl */
         uiControlHandle = osThreadNew(startUIControl, NULL, &uiControl_attributes);
-
-        /* creation of ESMMain */
-        esmMainHandle = osThreadNew(startESMMain, NULL, &esmMain_attributes);
 
         /* creation of buttonPress */
         buttonPressHandle = osThreadNew(startButtonPress, NULL, &buttonPress_attributes);
@@ -798,36 +777,13 @@ static void GlobalState_Init(){
 	GlobalState.lastSeenTime.time = tempTime;
 	GlobalState.lastSeenTime.date = tempDate;
 
-	GlobalState.lastSurveyTime.time = tempTime;
-	GlobalState.lastSurveyTime.date = tempDate;
-
-	//GlobalState.timeEstimateSample.time = tempTime;
-	//GlobalState.timeEstimateSample.date = tempDate;
-
 	GlobalState.lastConditions.lux = 0.0;
 	GlobalState.lastConditions.whiteLux = 0.0;
 	GlobalState.lastConditions.temp = 0.0;
 	GlobalState.lastConditions.humd = 0.0;
 
 	GlobalState.programMode = MODE_RESTING;
-
-	GlobalState.surveyState.surveyID = SURVEY_NONE;
-	char temp_string[10] = "  DRAMSAY.";
-	strncpy(GlobalState.surveyState.screenText, temp_string, strlen(temp_string)+1);
-	GlobalState.surveyState.screenTextLength = strlen(temp_string);
-	memset(GlobalState.surveyState.optionArray, 0, sizeof(GlobalState.surveyState.optionArray));
-	GlobalState.surveyState.optionArrayLength = 0;
-
-	GlobalState.currentInterval = 0;
-	GlobalState.paused = 0;
-	GlobalState.demo = 0;
 }
-
-static void updateInterval(){
-	uint32_t updateVal = rand() % (GlobalState.timeBound.maxInterval - GlobalState.timeBound.minInterval);
-	GlobalState.currentInterval = GlobalState.timeBound.minInterval + updateVal;
-}
-
 
 
 static inline void set_bit(long *x, int bitNum) {
@@ -853,19 +809,6 @@ HAL_StatusTypeDef updateLastSeenTime(){
     osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
     status_1 = HAL_RTC_GetTime(&hrtc, &(GlobalState.lastSeenTime.time), RTC_FORMAT_BCD);
     status_2 = HAL_RTC_GetDate(&hrtc, &(GlobalState.lastSeenTime.date), RTC_FORMAT_BCD);
-    osMutexRelease(lastSeenMutexHandle);
-
-    return status_1 | status_2;
-
-}
-
-HAL_StatusTypeDef updateLastSurveyTime(){
-
-	HAL_StatusTypeDef status_1, status_2;
-
-    osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
-    status_1 = HAL_RTC_GetTime(&hrtc, &(GlobalState.lastSurveyTime.time), RTC_FORMAT_BCD);
-    status_2 = HAL_RTC_GetDate(&hrtc, &(GlobalState.lastSurveyTime.date), RTC_FORMAT_BCD);
     osMutexRelease(lastSeenMutexHandle);
 
     return status_1 | status_2;
@@ -926,8 +869,7 @@ void get_RTC_hrminsec(char *dest) {
   * @retval None
   */
 /* USER CODE END Header startUIControl */
-void startUIControl(void *argument)
-{
+void startUIControl(void *argument){
   /* USER CODE BEGIN 5 */
   HAL_GPIO_WritePin(OLED_RESET_GPIO_Port, OLED_RESET_Pin, GPIO_PIN_SET);
 
@@ -970,399 +912,437 @@ void startUIControl(void *argument)
 	  GlobalState.programMode = MODE_ERROR;
   }
 
+  Survey_t surveyState;
+  uint8_t interaction_state;
+
     /* Infinite loop */
-    for(;;)
-    {
-
-     // -- Adjust/Dial in Angle Mapping for Touch Sensor -- //
-     //uint16_t current_angle = iqs263_get_angle();
-     //er_oled_clear(oled_buf);
-     //sprintf (time, "%d", current_angle);
-     //er_oled_string(0, 0, time, 12, 1, oled_buf);
-     //er_oled_display(oled_buf);
-     // /* comment out when doing angle adjustments
-
-     /*
-	 current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
-     if (current_minute != -1) { //touch!
-
-       if (!touch_end_count){ //START TOUCH EVENT!
-
-    	   er_oled_clear(oled_buf);
-    	   er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
-
-    	   if (GlobalState.programMode == MODE_RESTING){
-    		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-    		   GlobalState.programMode = MODE_TIME_ESTIMATE;
-    		   osMutexRelease(modeMutexHandle);
-    	   }
-
-           //if we're guessing the time, on start of touch we need to grab
-           //the hour of the last seen time as a starting point.
-           if (GlobalState.programMode == MODE_TIME_ESTIMATE){
-
-                osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
-                cTime = GlobalState.lastSeenTime.time;
-                osMutexRelease(lastSeenMutexHandle);
-
-                hrs = RTC_Bcd2ToByte(cTime.Hours);
-                mins = 0x00;
-           }
-
-           //on immediate touch set history to current minute
-           for (i=0; i < TOUCH_HISTORY_SIZE; i++){
-        	   minute_history[i] = current_minute;
-           }
-       }
-
-       touch_end_count = 1;
-
-       //put current minute in history buffer and advance circular index
-       minute_history[history_ind] = current_minute;
-       history_ind = (history_ind + 1) % TOUCH_HISTORY_SIZE;
-
-       //TWO MODES - fast and slow
-       // if large variation (min and max in buffer > 3 min) set display_time to current_time, else average
-
-       //take average of buffer, get min and max; that's what should be displayed
-       display_minute = 0;
-       min_minute = 60;
-       max_minute = 0;
-       for (i=0; i< TOUCH_HISTORY_SIZE; i++){
-    	   display_minute += minute_history[i];
-    	   if (minute_history[i] < min_minute) min_minute = minute_history[i];
-    	   if (minute_history[i] > max_minute) max_minute = minute_history[i];
-       }
-
-       if (max_minute-min_minute > 4) {
-    	   display_minute = current_minute;
-       } else {
-    	   display_minute /= TOUCH_HISTORY_SIZE;
-       }
-
-       //if last displayed is not what should be displayed, display
-  	   if (last_display_minute != display_minute) { //UPDATE TOUCH VALUE!
-
-           switch (GlobalState.programMode){
-                case MODE_ESM_SURVEY:
-                    //clear bottom
-                    er_oled_clear_bottom_third(oled_buf);
-
-                    //divide 10-50 min into option steps roughly
-                    step = 45 / (GlobalState.surveyState.optionArrayLength+1);
-                    for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
-                        //map minute to option
-                        if(display_minute >= (15 + i*step) &&
-                           display_minute < (15 + (i+1)*step)){
-                            er_oled_string(0, 28, GlobalState.surveyState.optionArray[GlobalState.surveyState.optionArrayLength-1-i], 12, 1, oled_buf);
-                        }
-                    }
-                    er_oled_display(oled_buf);
-
-                    break;
-
-                case MODE_TIME_ESTIMATE:
-
-                    //hours wrap
-                    if (display_minute < 15 &&
-                        display_minute >= 0 &&
-                        last_display_minute > 45){
-                        hrs = (hrs+1)%24;
-
-                    } else if (display_minute > 45 &&
-                               last_display_minute < 15){
-                        if (hrs==0) {hrs = 23;}
-                        else {hrs -= 1;}
-                    }
+  for(;;){
+
+   	//clear UI notification flags
+    xTaskNotifyStateClear(NULL);
+
+    //wait for notification from button
+    notification = ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
+
+    //on notification, check mode
+    if (GlobalState.programMode == MODE_NOTICED){
+    	er_oled_clear(oled_buf);
+    	er_oled_string(0, 20, "  COMPLETE", 12, 1, oled_buf);
+    	er_oled_display(oled_buf);
+
+    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    	GlobalState.programMode = MODE_RESTING;
+    	osMutexRelease(modeMutexHandle);
+
+    	osDelay(2000);
+
+    } else if (GlobalState.programMode == MODE_ERROR){
+    	er_oled_clear(oled_buf);
+    	er_oled_string(0, 20, "  ERROR!!", 12, 1, oled_buf);
+    	er_oled_display(oled_buf);
+    	while(1){
+    	  osDelay(10000);
+    	}
+    } else if (GlobalState.programMode == MODE_VIEW_TIME){
+    	er_oled_clear(oled_buf);
+    	er_oled_string(0, 20, "TIME NOW IS:", 12, 1, oled_buf);
+    	er_oled_display(oled_buf);
+
+    	osDelay(1000);
+
+    	osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
+    	HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
+    	HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
+    	osMutexRelease(rtcMutexHandle);
+
+    	hrs = RTC_Bcd2ToByte(cTime.Hours);
+    	mins = RTC_Bcd2ToByte(cTime.Minutes);
+    	sprintf (time, "%02d%02d", hrs, mins);
+    	er_oled_time(time);
+
+    	osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+    	GlobalState.lastSeenTime.time = cTime;
+    	GlobalState.lastSeenTime.date = cDate;
+    	osMutexRelease(lastSeenMutexHandle);
+
+    	bleSendData.sendType = TX_TIME_SEEN;
+    	bleSendData.data = 0x0000;
+    	osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+    	osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    	GlobalState.programMode = MODE_RESTING;
+    	osMutexRelease(modeMutexHandle);
+
+    	osDelay(3000);
+
+    } else if (GlobalState.programMode == MODE_SURVEY) {
+
+    	interaction_state = 0;
+
+    	//write initial third of screen and options for survey
+   	    er_oled_clear(oled_buf);
+ 	    er_oled_string(0, 0, " GUESS TIME:", 12, 1, oled_buf);
+ 	    er_oled_display(oled_buf);
+ 	    //start guess hour at previous seen
+ 	    osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
+ 	    cTime = GlobalState.lastSeenTime.time;
+ 	    osMutexRelease(lastSeenMutexHandle);
 
-                    //display time on bottom two thirds
-                    sprintf (time, "%02d%02d", hrs, display_minute);
-                    er_oled_time_twothird(time, oled_buf);
+ 	    hrs = RTC_Bcd2ToByte(cTime.Hours);
+ 	    mins = 0x00;
+
+    	while(GlobalState.programMode == MODE_SURVEY) {
+
+
+    		current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
+    		     if (current_minute != -1) { //touch!
+
+    		       if (!touch_end_count){ //START TOUCH EVENT!
+    		           //on immediate touch set history to current minute
+    		           for (i=0; i < TOUCH_HISTORY_SIZE; i++){
+    		        	   minute_history[i] = current_minute;
+    		           }
+    		       }
+
+    		       touch_end_count = 1;
+
+    		       //put current minute in history buffer and advance circular index
+    		       minute_history[history_ind] = current_minute;
+    		       history_ind = (history_ind + 1) % TOUCH_HISTORY_SIZE;
 
-                    break;
-           }
+    		       //TWO MODES - fast and slow
+    		       // if large variation (min and max in buffer > 3 min) set display_time to current_time, else average
 
-           last_display_minute = display_minute;
+    		       //take average of buffer, get min and max; that's what should be displayed
+    		       display_minute = 0;
+    		       min_minute = 60;
+    		       max_minute = 0;
+    		       for (i=0; i< TOUCH_HISTORY_SIZE; i++){
+    		    	   display_minute += minute_history[i];
+    		    	   if (minute_history[i] < min_minute) min_minute = minute_history[i];
+    		    	   if (minute_history[i] > max_minute) max_minute = minute_history[i];
+    		       }
+
+    		       if (max_minute-min_minute > 4) {
+    		    	   display_minute = current_minute;
+    		       } else {
+    		    	   display_minute /= TOUCH_HISTORY_SIZE;
+    		       }
+
+    		       //if last displayed is not what should be displayed, display
+    		  	   if (last_display_minute != display_minute) { //UPDATE TOUCH VALUE!
+
+    		           if(interaction_state == 0){
+    		        	   //time estimate
+    		        	    //hours wrap
+							if (display_minute < 15 &&
+								display_minute >= 0 &&
+								last_display_minute > 45){
+								hrs = (hrs+1)%24;
+
+							} else if (display_minute > 45 &&
+									   last_display_minute < 15){
+								if (hrs==0) {hrs = 23;}
+								else {hrs -= 1;}
+							}
+
+							//display time on bottom two thirds
+							sprintf (time, "%02d%02d", hrs, display_minute);
+							er_oled_time_twothird(time, oled_buf);
+
+    		           }else {
+
+							//clear bottom
+							er_oled_clear_bottom_third(oled_buf);
+
+							//divide 10-50 min into option steps roughly
+							step = 45 / (surveyState.optionArrayLength+1);
+							for (i=0; i<surveyState.optionArrayLength; i++){
+								//map minute to option
+								if(display_minute >= (15 + i*step) &&
+								   display_minute < (15 + (i+1)*step)){
+									er_oled_string(0, 28, surveyState.optionArray[surveyState.optionArrayLength-1-i], 12, 1, oled_buf);
+								}
+							}
+							er_oled_display(oled_buf);
+    		           }
+
+
+    		           last_display_minute = display_minute;
+
+    		  	   }
+
+
+    		     } else if (touch_end_count > 0){ //no touch, but touch just happened
+
+    		  	   touch_end_count += 1;//increment touching_end_count
+
+    		  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //FINISHED/CONFIRMED TOUCH VALUE!
+    		  		   uint8_t option = 0xFF;
+
+    		  		   if (interaction_state == 0){
+		  		   		   bleSendData.sendType = TX_TIME_EST;
+		  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
+		   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+		   		   		   interaction_state = 1;
+
+    		  		   } else{
+    		  			 for (i=0; i<surveyState.optionArrayLength; i++){
+							 //map minute to option
+    		  			   if(last_display_minute >= (15 + i*step) &&
+								last_display_minute < (15 + (i+1)*step)){
+								 option = surveyState.optionArrayLength-1-i;
+							 }
+						   }
+
+						   //send to ble
+						   bleSendData.sendType = TX_SURVEY_RESULT;
+						   bleSendData.data = (surveyState.surveyID << 8) | option;
+						   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+						   interaction_state += 1;
+
+    		  		   }
+
+
+    		  		   touch_end_count = 0;
+    		  		   last_display_minute = -1;
+
+    		  		   //based on interaction_state, update survey and/or
+    		  		   //put mode to resting to exit
+    		  		   er_oled_clear(oled_buf);
+    		  		   switch(interaction_state){
+    		  		   case 1:
+    		  			   er_oled_string(0, 0, "   SURE?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_CONFTIME;
+						   memcpy(surveyState.optionArray, opts_confidence, sizeof(opts_confidence));
+						   surveyState.optionArrayLength = 5;
+    		  			   break;
+    		  		   case 2:
+    		  			   er_oled_string(0, 0, "  STRESS?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_STRESS;
+						   memcpy(surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
+						   surveyState.optionArrayLength = 5;
+    		  			   break;
+    		  		   case 3:
+    		  			   er_oled_string(0, 0, " ALERTNESS?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_ALERTNESS;
+    		  			   break;
+    		  		   case 4:
+    		  			   er_oled_string(0, 0, "  MAX FLOW?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_FOCUS;
+    		  			   break;
+    		  		   case 5:
+    		  			   er_oled_string(0, 0, "   % FLOW?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_TIMEFLOW;
+						   memcpy(surveyState.optionArray, opts_timeflow, sizeof(opts_timeflow));
+						   surveyState.optionArrayLength = 11;
+    		  			   break;
+    		  		   case 6:
+    		  			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    		  			   GlobalState.programMode = MODE_RESTING;
+    		  			   osMutexRelease(modeMutexHandle);
+    		  			   break;
+    		  		   }
+    		  		  er_oled_display(oled_buf);
+
+    		  	  }
+
+    		  	  osDelay(50);
+
+
+    	} //end touch just done
+
+    }// while we're in ACTIVITY or SURVEY mode, keep spinning here
+
+    } else if (GlobalState.programMode == MODE_ACTIVITY) {
+
+    	interaction_state = 0;
+
+    	//write initial third of screen and options for survey
+   	    er_oled_clear(oled_buf);
+ 	    er_oled_string(0, 0, " GUESS DUR:", 12, 1, oled_buf);
+ 	    er_oled_display(oled_buf);
+ 	    //start guess 'hour' at 0
+
+ 	    hrs = 0x00;
+ 	    mins = 0x00;
+
+    	while(GlobalState.programMode == MODE_ACTIVITY) {
+
+
+    		current_minute = iqs263_get_min_if_pressed(); //returns -1 if no press
+    		     if (current_minute != -1) { //touch!
+
+    		       if (!touch_end_count){ //START TOUCH EVENT!
+    		           //on immediate touch set history to current minute
+    		           for (i=0; i < TOUCH_HISTORY_SIZE; i++){
+    		        	   minute_history[i] = current_minute;
+    		           }
+    		       }
+
+    		       touch_end_count = 1;
+
+    		       //put current minute in history buffer and advance circular index
+    		       minute_history[history_ind] = current_minute;
+    		       history_ind = (history_ind + 1) % TOUCH_HISTORY_SIZE;
+
+    		       //TWO MODES - fast and slow
+    		       // if large variation (min and max in buffer > 3 min) set display_time to current_time, else average
+
+    		       //take average of buffer, get min and max; that's what should be displayed
+    		       display_minute = 0;
+    		       min_minute = 60;
+    		       max_minute = 0;
+    		       for (i=0; i< TOUCH_HISTORY_SIZE; i++){
+    		    	   display_minute += minute_history[i];
+    		    	   if (minute_history[i] < min_minute) min_minute = minute_history[i];
+    		    	   if (minute_history[i] > max_minute) max_minute = minute_history[i];
+    		       }
+
+    		       if (max_minute-min_minute > 4) {
+    		    	   display_minute = current_minute;
+    		       } else {
+    		    	   display_minute /= TOUCH_HISTORY_SIZE;
+    		       }
+
+    		       //if last displayed is not what should be displayed, display
+    		  	   if (last_display_minute != display_minute) { //UPDATE TOUCH VALUE!
+
+    		           if(interaction_state == 0){
+    		        	   //time estimate
+    		        	    //hours wrap
+							if (display_minute < 15 &&
+								display_minute >= 0 &&
+								last_display_minute > 45){
+								hrs = (hrs+1)%24;
+
+							} else if (display_minute > 45 &&
+									   last_display_minute < 15){
+								if (hrs==0) {hrs = 0;}
+								else {hrs -= 1;}
+							}
+
+							//display time on bottom two thirds
+							sprintf (time, "%02d%02d", hrs, display_minute);
+							er_oled_time_twothird(time, oled_buf);
+
+    		           }else {
+
+							//clear bottom
+							er_oled_clear_bottom_third(oled_buf);
+
+							//divide 10-50 min into option steps roughly
+							step = 45 / (surveyState.optionArrayLength+1);
+							for (i=0; i<surveyState.optionArrayLength; i++){
+								//map minute to option
+								if(display_minute >= (15 + i*step) &&
+								   display_minute < (15 + (i+1)*step)){
+									er_oled_string(0, 28, surveyState.optionArray[surveyState.optionArrayLength-1-i], 12, 1, oled_buf);
+								}
+							}
+							er_oled_display(oled_buf);
+    		           }
+
+
+    		           last_display_minute = display_minute;
+
+    		  	   }
+
+
+    		     } else if (touch_end_count > 0){ //no touch, but touch just happened
+
+    		  	   touch_end_count += 1;//increment touching_end_count
+
+    		  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //FINISHED/CONFIRMED TOUCH VALUE!
+    		  		   uint8_t option = 0xFF;
+
+    		  		   if (interaction_state == 0){
+		  		   		   bleSendData.sendType = TX_DURATION_EST;
+		  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
+		   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+		   		   		   interaction_state = 1;
+
+    		  		   } else{
+    		  			 for (i=0; i<surveyState.optionArrayLength; i++){
+							 //map minute to option
+    		  			   if(last_display_minute >= (15 + i*step) &&
+								last_display_minute < (15 + (i+1)*step)){
+								 option = surveyState.optionArrayLength-1-i;
+							 }
+						   }
+
+						   //send to ble
+						   bleSendData.sendType = TX_SURVEY_RESULT;
+						   bleSendData.data = (surveyState.surveyID << 8) | option;
+						   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+						   interaction_state += 1;
+
+    		  		   }
+
+
+    		  		   touch_end_count = 0;
+    		  		   last_display_minute = -1;
+
+    		  		   //based on interaction_state, update survey and/or
+    		  		   //put mode to resting to exit
+    		  		   er_oled_clear(oled_buf);
+    		  		   switch(interaction_state){
+    		  		   case 1:
+    		  			   er_oled_string(0, 0, "   SURE?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_CONFDUR;
+						   memcpy(surveyState.optionArray, opts_confidence, sizeof(opts_confidence));
+						   surveyState.optionArrayLength = 5;
+    		  			   break;
+    		  		   case 2:
+    		  			   er_oled_string(0, 0, "COG. EFFORT?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_COGLOAD;
+						   memcpy(surveyState.optionArray, opts_arousal, sizeof(opts_arousal));
+						   surveyState.optionArrayLength = 5;
+    		  			   break;
+    		  		   case 3:
+    		  			   er_oled_string(0, 0, "  EMOTION?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_EMOTION;
+						   memcpy(surveyState.optionArray, opts_valence, sizeof(opts_valence));
+						   surveyState.optionArrayLength = 5;
+    		  			   break;
+    		  		   case 4:
+    		  			   er_oled_string(0, 0, " NEXT ACT?", 12, 1, oled_buf);
+						   surveyState.surveyID = SURVEY_TIMEFLOW;
+						   memcpy(surveyState.optionArray, opts_act, sizeof(opts_act));
+						   surveyState.optionArrayLength = 11;
+    		  			   break;
+    		  		   case 5:
+    		  			   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+    		  			   GlobalState.programMode = MODE_RESTING;
+    		  			   osMutexRelease(modeMutexHandle);
+    		  			   break;
+    		  		   }
+    		  		  er_oled_display(oled_buf);
+
+    		  	  }
+
+    		  	  osDelay(50);
+
+
+    	} //end touch just done
+
+    }// while we're in ACTIVITY or SURVEY mode, keep spinning here
+
+    }
+
+    //clear the screen before we wait again
+    er_oled_clear(oled_buf);
+    er_oled_display(oled_buf);
+
+  } //end infinite loop (wait on notify; react)
+
+}/* USER CODE END startUIControl */
 
-  	   }
 
-
-     } else if (touch_end_count > 0){ //no touch, but touch just happened
-
-  	   touch_end_count += 1;//increment touching_end_count
-
-  	   if (touch_end_count >= TOUCH_END_TIMEOUT){  //FINISHED/CONFIRMED TOUCH VALUE!
-  		   uint8_t option = 0xFF;
-
-  		   switch (GlobalState.programMode){
-  		   	   case MODE_ESM_SURVEY:
-  		   		   //grab current option
-  		   		   for (i=0; i<GlobalState.surveyState.optionArrayLength; i++){
-  		   		     //map minute to option
-  		   		     if(last_display_minute >= (15 + i*step) &&
-  		   		        last_display_minute < (15 + (i+1)*step)){
-  		   		         option = GlobalState.surveyState.optionArrayLength-1-i;
-  		   		     }
-  		   		   }
-
-  		   		   //send to ble
-  		   		   bleSendData.sendType = TX_SURVEY_RESULT;
-  		   		   bleSendData.data = (GlobalState.surveyState.surveyID << 8) | option;
-  		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
-
-  		   		   //notify main thread
-  		   		   xTaskNotifyGive(esmMainHandle);
-  		   		   break;
-
-  		   	   case MODE_TIME_ESTIMATE:
-  		   		   //send to ble
-  		   		   bleSendData.sendType = TX_TIME_EST;
-  		   		   bleSendData.data = (hrs << 8) | last_display_minute;
-   		   		   osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
-
-   		   		   //notify main thread
-   		   		   xTaskNotifyGive(esmMainHandle);
-  		   		   break;
-
-  		   }
-
-  		   touch_end_count = 0;
-  		   last_display_minute = -1;
-  		   er_oled_clear(oled_buf);
-  		   er_oled_display(oled_buf);
-
-  	   }
-
-  	   osDelay(50);
-
-
-     }else { //no touch, wait for a touch
-	 */
-       switch (GlobalState.programMode){
-        case MODE_CANCEL:
-    	   //had a 'cancel' button event
-           if(!saw_time){
-
-
-           er_oled_clear(oled_buf);
-           er_oled_string(0, 0, "START TASK ", 12, 1, oled_buf);
-           er_oled_display(oled_buf);
-   	   	   er_oled_string(0, 20, "TIME IS NOW:", 12, 1, oled_buf);
-   	   	   er_oled_display(oled_buf);
-
-   	   	   osDelay(750);
-
-   	   	   osMutexAcquire(rtcMutexHandle, portMAX_DELAY);
-   	   	   HAL_RTC_GetTime(&hrtc, &cTime, RTC_FORMAT_BCD);
-   	   	   HAL_RTC_GetDate(&hrtc, &cDate, RTC_FORMAT_BCD);
-   	   	   osMutexRelease(rtcMutexHandle);
-
-   	   	   hrs = RTC_Bcd2ToByte(cTime.Hours);
-   	   	   mins = RTC_Bcd2ToByte(cTime.Minutes);
-   	   	   sprintf (time, "%02d%02d", hrs, mins);
-   	   	   er_oled_time(time);
-           saw_time = 1;
-           }else {
-        	   er_oled_clear(oled_buf);
-        	   er_oled_string(0, 20, "  COMPLETE", 12, 1, oled_buf);
-        	   er_oled_display(oled_buf);
-           }
-
-
-	       osMutexAcquire(lastSeenMutexHandle, portMAX_DELAY);
-	       GlobalState.lastSeenTime.time = cTime;
-	       GlobalState.lastSeenTime.date = cDate;
-	       osMutexRelease(lastSeenMutexHandle);
-
-	       bleSendData.sendType = TX_TIME_SEEN;
-	       bleSendData.data = 0x0000;
-	       osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
-
-	       //updateInterval();
-
-	       osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-	       GlobalState.programMode = MODE_RESTING;
-	       osMutexRelease(modeMutexHandle);
-
-	       osDelay(2000);
-
-	       er_oled_clear(oled_buf);
-	       er_oled_display(oled_buf);
-	       break;
-
-        case MODE_SHOW_TIME:
-		   //show time, no cancel, but does the same thing
-
-		   er_oled_clear(oled_buf);
-		   er_oled_string(0, 20, "  Confirm?", 12, 1, oled_buf);
-		   er_oled_display(oled_buf);
-
-		   notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(3000));
-
-		   if (notification) {
-			   er_oled_clear(oled_buf);
-			   er_oled_string(0, 10, "  Thank you!", 12, 1, oled_buf);
-			   er_oled_display(oled_buf);
-			   osDelay(500);
-
-		   }
-
-		   //xTaskNotifyStateClear(NULL);
-
-		   er_oled_clear(oled_buf);
-		   er_oled_display(oled_buf);
-
-		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-		   GlobalState.programMode = MODE_RESTING;
-		   osMutexRelease(modeMutexHandle);
-
-		   xTaskNotifyGive(alertHandle);
-
-		   break;
-
-       case MODE_ERROR:
-    	   //ERROR condition: print condition and loop forever
-
-    	   er_oled_clear(oled_buf);
-    	   er_oled_string(0, 12, errorCondition, 12, 1, oled_buf);
-    	   er_oled_display(oled_buf);
-    	   for (;;){}
-    	   break;
-
-       case MODE_CLEAR:
-    	   //Timeout, notify and wait until clear
-    	   //show time and restart
-
-		   er_oled_clear(oled_buf);
-		   er_oled_string(0, 10, "  Thank you!", 12, 1, oled_buf);
-		   er_oled_display(oled_buf);
-
-		   osDelay(500);
-
-		   er_oled_clear(oled_buf);
-		   er_oled_display(oled_buf);
-
-		   osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-		   GlobalState.programMode = MODE_RESTING;
-		   osMutexRelease(modeMutexHandle);
-
-    	   break;
-
-
-       case MODE_ESM_SURVEY:
-       case MODE_TIME_ESTIMATE:
-    	  er_oled_clear(oled_buf);
-    	  er_oled_string(0, 0, GlobalState.surveyState.screenText, 12, 1, oled_buf);
-    	  er_oled_display(oled_buf);
-    	  osDelay(100);
-    	  break;
-
-       case MODE_RESTING:
-		   osDelay(250);
-		   if (GlobalState.paused){
-			   er_oled_clear(oled_buf);
-			   er_oled_string(0, 14, "   paused", 12, 1, oled_buf);
-			   er_oled_display(oled_buf);
-		   }
-		   break;
-
-       default:
-    	   osDelay(20);
-    	   break;
-       }
-
-     }
-     // comment out when doing angle adjustments -- */
-    //}
-
-
-
-  /* USER CODE END startUIControl */
-}
-
-
-uint8_t check_time_bounds(uint8_t curr_hrs){
-	//check time bounds, account for wrap (i.e. give time bounds of 10a-3a)
-
-	uint8_t starthr = RTC_Bcd2ToByte(GlobalState.timeBound.startHR_BCD);
-	uint8_t endhr = RTC_Bcd2ToByte(GlobalState.timeBound.endHR_BCD);
-
-	if (starthr < endhr){
-		return (curr_hrs >= starthr && curr_hrs < endhr);
-	} else {
-		return (curr_hrs >= starthr || curr_hrs < endhr);
-	}
-
-}
-
-/* USER CODE BEGIN Header_startESMMain */
-/**
-* @brief Function implementing the esmMain thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_startESMMain */
-void startESMMain(void *argument)
-{
-  /* USER CODE BEGIN startESMMain */
-
-  uint32_t notification;
-
-  const BLETX_Queue_t bleSendData = {TX_PREVIOUS_INVALID, 0x0000};
-
-  /* Infinite loop */
-  for(;;)
-  {
-
-	    //set this up so that interaction when watch is touched is:
-
-	    //For Sam:
-	    // Touch starts time guess.
-	    // Letting go puts it in sends time and puts it in MODE_SHOW_TIME
-	    // where it says 'Confirm?' with a 3s timeout
-	    // if a button is pressed during MODE_SHOW_TIME, changes to MODE_CLEAR, says thanks, MODE_RESTING
-	  	// if not, sends INPUT_INVALID and goes to MODE_RESTING
-	    // if a button is pressed during MODE_RESTING, goes to MODE_CANCEL (shows time) and sends TIME_SEEN, back to RESTING
-
-
-    	//clear UI notification flags
-    	xTaskNotifyStateClear(NULL);
-
-    	osMutexAcquire(surveyMutexHandle, portMAX_DELAY);
-    	strncpy(GlobalState.surveyState.screenText, " GUESS TIME:", strlen(" GUESS TIME:") + 1);
-    	GlobalState.surveyState.screenTextLength = strlen(" GUESS TIME:");
-    	GlobalState.surveyState.surveyID = SURVEY_EST_TIME;
-    	osMutexRelease(surveyMutexHandle);
-
-    	//wait for notification from UI thread that indicates start of user interaction
-    	notification = ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
-
-
-		//show confirm screen
-		osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-		GlobalState.programMode = MODE_SHOW_TIME;
-		osMutexRelease(modeMutexHandle);
-
-		//(2) Wait for notification from button that indicates confirmed input
-		notification = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS(3000));
-
-		if (notification){//not timed out, had a confirmed event
-			//confirmed, set mode to MODE_CLEAR
-			xTaskNotifyGive(uiControlHandle);
-			osDelay(500);
-
-
-		} else{
-			//not confirmed, send TX_PREVIOUS_INVALID
-			osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
-
-			osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-			GlobalState.programMode = MODE_RESTING;
-			osMutexRelease(modeMutexHandle);
-		}
-  }
-  /* USER CODE END startESMMain */
-}
 
 /* USER CODE BEGIN Header_startButtonPress */
 /**
@@ -1375,6 +1355,7 @@ void startButtonPress(void *argument)
 {
   /* USER CODE BEGIN startButtonPress */
   /* Infinite loop */
+  BLETX_Queue_t bleSendData = {TX_PREVIOUS_INVALID, 0x0000};
 
   //Buttons are PULLED UP and drop to 0 when pressed
   uint8_t buttonState[] = {1, 1, 1};
@@ -1405,19 +1386,25 @@ void startButtonPress(void *argument)
 
 				//timeout for release at 6 secs
 				holdValue = 0x00;
-				xTaskNotifyWait(0b1000, 0x00, &holdValue, pdMS_TO_TICKS(6000));
+				xTaskNotifyWait(0b1000, 0x00, &holdValue, pdMS_TO_TICKS(3000));
 
 				if (holdValue > 0x00){
 					//released before 6 seconds
+					if (GlobalState.programMode == MODE_RESTING){
+						osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+						GlobalState.programMode = MODE_SURVEY;
+						osMutexRelease(modeMutexHandle);
 
-				  if (GlobalState.programMode == MODE_SHOW_TIME){
-					  xTaskNotifyGive(esmMainHandle);
-					  //xTaskNotifyGive(uiControlHandle);
-				  } else {
-					  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-					  GlobalState.programMode = MODE_CANCEL;
-					  osMutexRelease(modeMutexHandle);
-				  }
+						xTaskNotifyGive(uiControlHandle);
+					} else {
+						bleSendData.sendType = TX_PREVIOUS_INVALID;
+						bleSendData.data = 0x0000;
+						osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+						osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+						GlobalState.programMode = MODE_RESTING;
+						osMutexRelease(modeMutexHandle);
+					}
 
 				} else { //took six seconds
 					  NVIC_SystemReset();
@@ -1427,44 +1414,48 @@ void startButtonPress(void *argument)
 
 				//timeout for release at 6 secs
 				holdValue = 0x00;
-				xTaskNotifyWait(0b10000, 0x00, &holdValue, pdMS_TO_TICKS(6000));
+				xTaskNotifyWait(0b10000, 0x00, &holdValue, pdMS_TO_TICKS(3000));
 
 				if (holdValue > 0x00){
 					//released before 6 seconds
 
-				  if (GlobalState.programMode == MODE_SHOW_TIME){
-					  xTaskNotifyGive(esmMainHandle);
-					  //xTaskNotifyGive(uiControlHandle);
-				  } else {
-					  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-					  GlobalState.programMode = MODE_CANCEL;
-					  osMutexRelease(modeMutexHandle);
-				  }
+		    		osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+		    		GlobalState.programMode = MODE_ACTIVITY;
+		    		osMutexRelease(modeMutexHandle);
+
+		    		xTaskNotifyGive(uiControlHandle);
 
 				} else { //took six seconds
-					  NVIC_SystemReset();
+					osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+					GlobalState.programMode = MODE_VIEW_TIME;
+					osMutexRelease(modeMutexHandle);
+
+					xTaskNotifyGive(uiControlHandle);
+
 				}
 		}
 		if (callingPin == 0b100000 && !first_read) { //button 3 trigger
 
 				//timeout for release at 6 secs
 		    	holdValue = 0x00;
-		    	xTaskNotifyWait(0b100000, 0x00, &holdValue, pdMS_TO_TICKS(6000));
+		    	xTaskNotifyWait(0b100000, 0x00, &holdValue, pdMS_TO_TICKS(3000));
 
 		    	if (holdValue > 0x00){
-		    		//released before 6 seconds
+		    		//released before 3 seconds
 
-		    	  if (GlobalState.programMode == MODE_SHOW_TIME){
-					  xTaskNotifyGive(esmMainHandle);
-					  //xTaskNotifyGive(uiControlHandle);
-				  } else {
-					  osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-					  GlobalState.programMode = MODE_CANCEL;
-					  osMutexRelease(modeMutexHandle);
-				  }
+		    		bleSendData.sendType = TX_NOTICED_LED;
+		    		bleSendData.data = 0x0000;
+		    		osMessageQueuePut(bleTXqueueHandle, &bleSendData, 0, 0);
+
+		    		osMutexAcquire(modeMutexHandle, portMAX_DELAY);
+		    		GlobalState.programMode = MODE_NOTICED;
+		    		osMutexRelease(modeMutexHandle);
+
+		    		xTaskNotifyGive(uiControlHandle);
+
 
 		    	} else { //took six seconds
-		    		  NVIC_SystemReset();
+		    		  xTaskNotifyGive(alertHandle);
 		    	}
 		}
 
@@ -1530,16 +1521,9 @@ void startAlert(void *argument)
 	ds_clear();
 	ds_show();
 
-	/*
-	 *
 	counter = 0;
 	LEDDirection = 0;
 	LEDBrightness = 0;
-
-	ulTaskNotifyTake( pdTRUE, portMAX_DELAY);
-
-	//start vibration
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
 	//flash loop
 	ds_fill(0xFFFFFF, 0, 12);
@@ -1564,47 +1548,6 @@ void startAlert(void *argument)
 	ds_setBrightness(0);
 	ds_fill(0x000000, 0, 12);
 	ds_show();
-
-	osDelay(pdMS_TO_TICKS(100)); //100ms delay
-
-    //stop vibration
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-
-    //if we're in demo mode, flash some LEDs
-    if (GlobalState.demo){
-
-    	counter = 0;
-    	r = 0xFF;
-    	g = 0xFF;
-    	b = 0xFF;
-
-    	ds_setBrightness(MAX_BRIGHTNESS);
-    	while(GlobalState.demo) {
-
-    		for (int i=0; i< NUM_PIXELS; i++){
-
-    			if      (i==(counter+2)%12)	{ color = (r  <<16) | (g  <<8) | b; }
-    			else if (i==(counter+1)%12) { color = (r/2<<16) | (g/2<<8) | b/2; }
-    			else if (i==counter)        { color = (r/4<<16) | (g/4<<8) | b/4; }
-    			else 						{ color = 0x000000; }
-
-    			ds_setPixelColor32B(i, color); // 'off' pixel at head
-    		}
-
-    		ds_show();
-    		r = (r + 11) % 0xFF;
-    		g = (g + 13) % 0xFF;
-    		b = (b + 17) % 0xFF;
-    		counter = (counter+1)%12;
-    		osDelay(pdMS_TO_TICKS(50));
-    	}
-
-    	//turn off LEDs
-		ds_setBrightness(0);
-		ds_fill(0x000000, 0, 12);
-		ds_show();
-    }
-    */
 
   }
   /* USER CODE END startAlert */
@@ -1720,9 +1663,7 @@ void startBLETX(void *argument)
 
           switch (sendData.sendType){
             case TX_PREVIOUS_INVALID:
-            case TX_SURVEY_INITIALIZED:
-            case TX_BEGIN_PAUSE:
-
+            case TX_NOTICED_LED:
             	sendval[4] = (cDate.WeekDay << (8*1)) | cDate.Month;
             	sendval[3] = (cDate.Date << (8*1)) | cDate.Year;
             	sendval[2] = (cTime.Hours << (8*1)) | cTime.Minutes;
@@ -1732,6 +1673,7 @@ void startBLETX(void *argument)
             	break;
 
             case TX_TIME_EST:
+            case TX_DURATION_EST:
             case TX_TIMESTAMP_UPDATE:
             case TX_SURVEY_RESULT:
             	sendval[5] = (cDate.WeekDay << (8*1)) | cDate.Month;
@@ -1983,38 +1925,6 @@ void startBLERX(void *argument)
 			bleSendUpdate.data = (uint16_t)signed_sec_difference;
 			osMessageQueuePut(bleTXqueueHandle, &bleSendUpdate, 0, 0);
 		}
-
-		else if (rxData.pPayload[0] == 0x01) {//change time bounds
-			//startHR, endHR in BCD
-			GlobalState.timeBound.startHR_BCD = rxData.pPayload[1];
-			GlobalState.timeBound.endHR_BCD  = rxData.pPayload[2];
-
-			GlobalState.paused = 1;
-			const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
-			osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
-		}
-
-		else if (rxData.pPayload[0] == 0x02) {//pause or unpause watch
-
-			if (rxData.pPayload[1]) { //pause things
-
-				GlobalState.paused = 1;
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_RESTING;
-				osMutexRelease(modeMutexHandle);
-	    		const BLETX_Queue_t bleSendPause = {TX_BEGIN_PAUSE, 0x0000};
-	     		osMessageQueuePut(bleTXqueueHandle, &bleSendPause, 0, 0);
-
-			} else { //unpause things
-
-				osMutexAcquire(modeMutexHandle, portMAX_DELAY);
-				GlobalState.programMode = MODE_SHOW_TIME;
-				osMutexRelease(modeMutexHandle);
-				GlobalState.paused = 0;
-			}
-
-		}
-
 	}
   }
   /* USER CODE END startBLERX */
